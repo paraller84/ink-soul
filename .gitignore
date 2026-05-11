@@ -1,0 +1,8 @@
+# No framework-specific files
+*.db
+*.jsonl
+.env
+__pycache__/
+.DS_Store
+
+# Keep only the portable soul
