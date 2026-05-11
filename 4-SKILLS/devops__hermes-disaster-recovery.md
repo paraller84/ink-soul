@@ -211,8 +211,17 @@ After backup setup:
 - **WSL export size**: Full WSL export with Ollama models can be 30GB+. Exclude model directories or use `--no-vhdx` flags.
 - **GitHub rate limits**: Frequent pushes (>100/day) may hit rate limits. Soul layer changes are rare enough (<10/day) that this is not a concern in practice.
 
+## Scope Note
+
+This skill covers **framework-specific backup** — restoring Hermes Agent's state after a hardware failure within the same framework. It preserves the agent's data so Hermes Agent can be restored.
+
+For **cross-framework portability** — extracting the agent's identity into a platform-independent form that can be reborn in any future framework (Ink, for example) — see `agent-soul-extraction`. The two skills are complementary:
+- DR: "My WSL crashed, restore Hermes Agent"  
+- Soul: "I'm switching to a completely different AI framework next year"
+
 ## Related Skills
 
+- `agent-soul-extraction` — Cross-framework identity portability (complementary paradigm)
 - `agent-memory-management` — focuses on preventing memory bloat and pruning, complements backup strategy
 - `system-health-audit` — broader system health checks that include backup verification
 - `getnotes-sync-pipeline` — C013 sync pipeline (another data preservation mechanism)
