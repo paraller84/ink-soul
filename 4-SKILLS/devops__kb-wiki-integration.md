@@ -220,6 +220,46 @@ ASCII 图数字更新陷阱：capability-registry.md 中的流程示意图数字
 
 **特别情况**：不同原始文件可能映射到同一 sanitized 文件名（如 `1_L2-Day1-电子练习册.pdf` 和 `1_L2Day1-电子练习册.pdf` 都可能变成 `1_L2Day1-电子练习册.md`）。后写入的那个会覆盖前者。这在首次全量时不可控，但增量模式下只会覆写被再次检测到变更的文件。
 
+## 部署与调度（Cron 设置）
+
+kb-wiki-sync 和 feishu-wiki-sync 脚本一旦完成，**必须显式创建 cron 任务**，否则它们永远不运行。
+「记忆中说有 cron」不等于「实际上有 cron」——两个脚本都曾被遗漏调度长达 16 天。
+
+### kb-wiki-sync（每日 23:00）
+
+```bash
+hermes cron --create \
+  --name "知识库-Wiki摘要同步 kb-wiki-sync" \
+  --schedule "0 23 * * *" \
+  --script "kb-wiki-sync.py" \
+  --no-agent
+```
+
+### feishu-wiki-sync（每日 09:00）
+
+```bash
+hermes cron --create \
+  --name "飞书-Wiki同步 feishu-wiki-sync" \
+  --schedule "0 9 * * *" \
+  --script "feishu-wiki-sync.py" \
+  --no-agent
+```
+
+### 验证调度生效
+
+```bash
+hermes cron --list
+# → 确认两个任务 state=scheduled, next_run_at 正确
+# → 检查 last_status 在首次执行后不为 null
+
+# 手动触发测试
+python3 ~/.hermes/scripts/kb-wiki-sync.py --catalog-only
+python3 ~/.hermes/scripts/feishu-wiki-sync.py
+```
+
+> ⚠️ 这两个脚本与 kb_pipeline 的调度方式不同：pipeline 走系统 crontab，它们走 Hermes cron。
+> 系统 crontab 用 `crontab -l` 查看，Hermes cron 用 `hermes cron --list` 查看，**互不包含**。
+
 ## 已知陷阱
 
 1. **ASCII 图对齐脆弱** — capability-registry.md 中的流程图是 ASCII art，用 `patch` 替换时多余的字符会破坏对齐。替换后必须 visual check。

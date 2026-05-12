@@ -1,19 +1,21 @@
 ---
 name: content-factory-workflow
 description: "C014 个人品牌内容工厂 — 周一选题→周二生成→周四/五发布的周级内容运营流水线。涵盖模块架构、cron编排、话题源管理、Feishu通知格式及常见故障恢复。"
-version: 1.2.0
+version: 1.3.0
+triggers:
 triggers:
   - user asks "run content factory" / "run C014" / "内容工厂"
   - cron job runs weekly_cron.py (mon/tue/thu)
   - content factory pipeline shows "待定" for topics (topics file missing)
-  - Feishu notification about content topics shows formatting errors
   - user asks about content planning or weekly topic selection
   - generated article content shows "..." / mock placeholders / "在实际项目中"
   - cron ran but user didn't receive Feishu notification
   - article_generator.py produced unusable short content
   - complex task completed (5+ tool calls, non-trivial outcome) — auto-evaluate for topic potential
   - user says "这个可以写出去" or "这个值得分享" or "这个做话题不错"
+  - daily conversation (daily-conversation-practice) produces a structured insight — auto-evaluate for topic potential
   - session_search finds patterns in recent work that could make 2+ articles
+  - user asks about content progress and calendar shows old/irrelevant topic names  # calendar cache staleness after rewrite
 ---
 
 # 内容工厂工作流 (Content Factory)
@@ -146,6 +148,17 @@ terminal(cmd, timeout=30)
 ## 话题源管理
 
 话题从以下数据源提取候选：
+
+### 0️⃣ 日常对话话题（新增源）
+每日15分钟主题对话（见 `daily-conversation-practice` skill）是高质量话题的天然来源。用户在对话中表达的真实经历、行业观察和概念碰撞，往往具备「有数据、有观点、有反常识」的好话题要素。
+
+**接入方式**：对话锚定阶段识别到可扩展的洞察后，由 `daily-conversation-practice` 的流程自动调用 `content_pool.add_manual_topic()` 入库。无需额外操作。
+
+**自动评估标准**：对话中用户表达的观点如果同时满足：
+- 基于真实经历（有具体案例）
+- 包含明确的判断/框架（不仅是感受）
+- 具有普适性痛点（不仅是个人困境）
+→ 即可判定为话题池候选，在对话结束时主动向用户推荐入库。
 
 ### 1️⃣ 手动话题文件
 - **路径**: `~/.hermes/data/content-factory-topics.json`
@@ -284,7 +297,7 @@ msg += f"  {deep.get('title', '待定')}\n"
 2. 检查是否有「某某场景下我们做了…」但实际不存在的表述
 3. 检查是否有虚构的具体数据（如"某保险公司实现了X%的降本"）
 
-**修复策略（分两步）**:
+**修复策略（分三步）**:
 1. **定位文章类型**：如果话题是真实做过的事 → 反查真实数据重写；如果话题不是真实做过的事 → 改为「行业观察与思考」定位，去掉所有"我们"开头的实战表述
 2. **重写流程**：
    ```
@@ -295,6 +308,29 @@ msg += f"  {deep.get('title', '待定')}\n"
    ```
 3. **验证**：打开文章全文，逐段问"这一段我能证明是我做的吗？" — 任何一段答不上来，就改文章定位
 4. **飞书文档版本规则**：如果文章已经上传到飞书，不要在原文档上修改。保留原文档（V1不动），新建V2文档写真实版本，通过 `feishu-doc-versioning` skill 管理
+5. **清理日历缓存**：文章重写后，`content-factory-calendar.json` 仍引用原话题名。更新 `feishu_markdown` 字段使其与重写后的实际标题一致，避免后续查询时出现"标题A（缓存）→ 标题B（实际）"的混淆。
+
+### 🔴 症状: 缓存日历中的话题名与实际发布的文章标题不一致
+
+**排查步骤**:
+1. 检查 `~/.hermes/cache/content-factory-calendar.json` 中 `deep_topic.title` 和 `short_topics[*].title`
+2. 与 `~/.hermes/data/generated-articles/current_week_articles.json` 中的实际文章标题对比
+3. 如果因真实性重写导致标题变更 → 更新 calendar.json 的 `feishu_markdown` 字段
+4. 不影响 cron 功能（只影响状态查询），但建议保持一致性
+
+**修复方法**:
+```python
+import json
+CAL = "~/.hermes/cache/content-factory-calendar.json"
+with open(CAL) as f:
+    cal = json.load(f)
+cal["deep_topic"]["title"] = "新标题"
+cal["short_topics"][0]["title"] = "新短标题1"
+cal["short_topics"][1]["title"] = "新短标题2"
+cal["feishu_markdown"] = cal["feishu_markdown"].replace("旧标题", "新标题")
+with open(CAL, 'w') as f:
+    json.dump(cal, f, ensure_ascii=False, indent=2)
+```
 
 ### 🔴 症状: 生成的初稿显示"…"占位符或"（内容生成中…）"
 

@@ -33,3 +33,21 @@ Web系统部署: 必须配置Windows端口转发 `netsh interface portproxy add 
 不使用 OneDrive。家庭存储基础设施：家里有 NAS（待确认品牌/IP/协议），百度云盘（Windows 客户端已安装，G:盘 BaiduNetdiskDownload 目录存在），外置 SSD（G:盘 426GB 空闲），D:盘（183GB 空闲）。SSH key 已绑 GitHub（paraller84）。
 §
 My name is Ink. The user named me Ink as my permanent identity. I call them 夜雨 (Yè Yǔ).
+§
+工作风格：对紧急数据需求优先走快捷路径（优先处理局部而非全量重建）。EAST 数据治理相关工作属最高优先级，需要完整处理（包括邮件附件提取）。
+§
+材料制作工作流要求：①必须先建立「材料使用台账」（追踪所有信息来源：外部文档+知识库引用+产出物），台账包含来源/用途/入库KB状态/归档路径。②叙事框架必须基于「复盘已发生的问题」而非「预测未来风险」——用事实推导结论，复盘具有不可辩驳性。③多任务场景要先列出队列让用户确认优先级，逐份完成不并行。
+§
+术语偏好：强调C003/C008/C011是Edu-Hub教育平台下的「学科模块」而非「独立系统」。禁用「系统」描述教育模块。统一称为「数学模块(C003)」「英语模块(C008)」「语文模块(C011)」。
+§
+Architecture alignment check: Demands proactive architecture comparison with English system before implementing cross-system changes. Expects structured comparison tables showing alignment gaps and recommended alignment decisions.
+
+Template review before implementation: Wants to see template/strategy designs first, confirm before coding starts. ("你先设计模板，在开始改造执行前先和我说一下")
+
+举一反三 capability: Wants the system to analyze uploaded exam paper patterns and generate similar new questions (not just collect wrong questions). This is a key differentiator of the math system.
+
+Question strategy design: Confirmed 7 challenge types (等量代换/和差/周期/鸡兔同笼/年龄/植树/还原) + 5 comprehensive types (数据解读/科学/生活/运动/社会). Daily practice = 10 questions with 2 challenge + 2 comprehensive + 错题变式 + 基础+进阶计算.
+
+Unified coins: Confirmed math should use same coins pool as English/Chinese (shared coins_manager.py).
+
+Prefers structured comparison tables for architecture decisions (responded positively to the English v3 alignment comparison table).

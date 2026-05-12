@@ -489,7 +489,31 @@ tests = [
 
 **How to distinguish from Trap 3**: Trap 3 produces wrong URL paths (e.g., `/english/route` instead of `/english/student/route`). Trap 8 produces conflicting routes where one Blueprint shadows another at the same path level (both have `/english/` root route, only the first Blueprint's fires).
 
-9. **`{% extends %}` resolves across Blueprint boundaries, not just current Blueprint** — Flask's `DispatchingJinjaLoader._iter_loaders()` iterates ALL Blueprint jinja_loaders in registration order (plus the app-level loader). When a template `{% extends "base.html" %}`, the search does NOT limit to the current Blueprint's template folder — it finds the first `base.html` across ALL Blueprints. This means a Blueprint registered earlier can shadow another Blueprint's template. Fix: ensure no two Blueprints have identically-named template files (especially `base.html`), or namespace templates with subdirectories. See Step 7b for diagnosis and fixes.
+9. **`{% extends %}` resolves across Blueprint boundaries, not just current Blueprint** — Flask's `DispatchingJinjaLoader._iter_loaders()` iterates ALL Blueprint jinja_loaders in registration order (plus the app-level loader). When a template `{% extends "base.html" %}`, the search does NOT limit to the current Blueprint's template folder — it finds the first `base.html` across ALL Blueprints. This means a Blueprint registered earlier can shadow another Blueprint's template.
+
+**Variant A — Both Blueprints have `base.html` (shadowing)**: The earlier-registered Blueprint's `base.html` shadows the current one. The page renders the wrong layout despite loading the correct direct template. Fix: move/rename the conflicting templates or namespace with subdirectories.
+
+**Variant B — Current Blueprint has NO `base.html` (silent fallback)**: The current Blueprint's template uses `{% extends "base.html" %}` but there is NO `base.html` at that path in its own template directory. Flask searches ALL Blueprints and finds another Blueprint's `base.html`. Since the foreign base template uses different block names (e.g., `{% block content %}` instead of `{% block body %}`), the current template's `{% block body %}` content is **silently dropped** — only `{% block scripts %}` renders if it happens to match. The page appears empty or with only JS.
+
+**Symptom of Variant B**: Page title changes to another subsystem's, no visible HTML structure loads, but `<script>` content is present. JavaScript errors show `Cannot set properties of null (setting 'innerHTML')` because the expected DOM elements were never rendered.
+
+**Root cause of Variant B**: The extends path is relative to the template directory root (`base.html`), but the actual base template is in a subdirectory (`v2/base.html`). The current Blueprint has no file at `templates/base.html`, so the fallback search finds a completely unrelated Blueprint's `templates/base.html`.
+
+**Diagnosis**: Verify that the extends target file exists in the current Blueprint's template directory:
+```bash
+# Check if base.html exists at the expected path
+find /path/to/current-blueprint/templates/ -name "base.html"
+# If it's in a subdirectory (e.g., templates/v2/base.html), the extends path is wrong
+```
+
+**Fix for Variant B**: Update the extends path to include the subdirectory:
+```jinja
+{# ❌ Current Blueprint has templates/v2/base.html but uses #}
+{% extends "base.html" %}        {# → fallback to wrong Blueprint #}
+
+{# ✅ Match the actual path #}
+{% extends "v2/base.html" %}
+```
 
 **Diagnostic indicator**: Route returns 200 with correct template path, but the page renders another subsystem's layout/CSS/title. The `extends` target resolves to the wrong Blueprint's file, not the current one.
 

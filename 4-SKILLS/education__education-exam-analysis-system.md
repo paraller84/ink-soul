@@ -284,6 +284,16 @@ sed -i 's/\\"/"/g' script.py
 - 25 images ≈ 15 minutes total
 - Use `background=true` with `notify_on_complete=true`
 
+### Known Vision Limitation: qwen3-vl:4b Struggles with Table Layouts
+
+qwen3-vl:4b reliably extracts text from **linear/paragraph-style** exam content (word problems, single questions) but struggles with **structured table layouts** (multi-row/multi-column grids, comparison tables, grade charts). When presented with table-formatted content, the model enters a repetitive loop describing table structure instead of extracting data.
+
+**Best practice for exam parsing**:
+- Photograph individual questions rather than entire page grids
+- For tables (exam score tables, character tables), prefer text-based input or manual entry
+- The model works well for: word problems, single questions, short-answer sections
+- Avoid relying on it for: multi-column character grids, score tallies, alignment-heavy layouts
+
 ## Pitfalls
 
 1. **patch damage on sync script**: Always rewrite the full file rather than patching when adding new folders to `feishu-wiki-sync.py`. The `"""` and escaped strings cause patch corruption.

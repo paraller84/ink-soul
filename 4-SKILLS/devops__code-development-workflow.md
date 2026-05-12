@@ -1525,6 +1525,46 @@ path = mm._mastery_path(sid)               # ❌ 同上
 
 ---
 
+## 新增陷阱：函数双返回路径只改其一（静默陷阱）
+
+**发现场景**（C003 v7.0 实施 2026-05-12）：改造 `api_practice_today()` 时，在返回体中添加了 `questions` 字段。但函数有 **两条返回路径** —— `if bundle:` 路径和兜底生成路径。只在第二条路径加了字段，第一条没改。用户反馈页面空白。
+
+```python
+# 第一个返回路径（if bundle:）—— 缺了 questions 字段！
+return jsonify({
+    "calculations": calculations,
+    "word_problems": word_problems,
+    "date": bundle.get("date", ""),
+    "title": bundle.get("title", ""),
+    # ← 没有 questions！
+})
+
+# 第二个返回路径（else/兜底）—— 改了
+return jsonify({
+    "calculations": calculations,
+    "word_problems": word_problems,
+    "questions": q_list,  # ✅ 有
+    "date": bundle.get("date", ""),
+    "title": bundle.get("title", ""),
+})
+```
+
+前端会 `if (!data.questions)` 判断条件为真，显示空状态。
+
+**排查方法**：搜索函数的 `return jsonify` 或 `return dict` 的所有实例：
+```bash
+# 在 function X 中找到所有 return
+grep -n "return jsonify\|return {" routes.py | head -20
+# 对比每个返回体的字段集是否一致
+```
+
+**预防清单**：
+1. 修改任何返回体时，先 `grep -n "return"` 找到该函数的**所有 return 语句**
+2. 逐条确认每个 return 都包含了新字段
+3. 最简单的预防：将公共字段提取为变量，然后 `return jsonify({**common_fields, ...specific_fields})`
+
+**排查标志**：修改了 API 返回体后，前端读取 API 不报错（HTTP 200）但页面功能异常。
+
 ## 新增陷阱 22：CSS 插值错误——`.replace()` 与 CSS 花括号冲突
 
 **发现场景**：在 Flask 视图函数中使用 Python 字符串模板生成 HTML（如渲染门户页面），模板中包含 CSS 样式时使用 `.format()` 替代 `{EXTERNAL_URL}` 失败。
@@ -1750,7 +1790,24 @@ grep -oP "render_template\('[^']+\.html" routes.py | sed "s/render_template('//"
 - Step 2.5 直接引用 C007 交付物路径
 - 在 Step 3 context 中注明："架构设计见 C007 顾问团报告 [链接]"
 
-**跟 C007 无关的独立加速：绿地项目（Greenfield）**：
+### Template-first confirmation mode (用户偏好)
+
+当任务涉及**新的交互页面、模板、UI/UE设计**时，用户要求在编码实现前先展示设计/模板。这是本场景的固定流程：
+
+```markdown
+正确的改造节奏（用户偏好）:
+Step 1: 设计模板/策略文档 → 用户确认
+  （展示YAML模板设计、HTML页面布局、交互流程）
+Step 2: 架构对齐检查（对照同类模块）→ 用户确认
+  （输出对比表，标明对齐/不对齐项）
+Step 3: 编码实现 → 测试 → 交付
+```
+
+跳过 Step 1 直接编码会导致返工。用户原话：**"你先设计模板，在开始改造执行前先和我说一下"**。
+
+适用场景：教育系统模块改造、新增交互页面、新增题型模板。对其他有明显 UI/UE 设计的任务同样适用。
+
+### 与跟 C007 无关的独立加速：绿地项目（Greenfield）：
 
 当任务为**创建全新的独立脚本/管道**（不修改任何现有代码）时，即使没有 C007 前置问询，也有权跳过 Step 1 和 Step 2：
 

@@ -259,6 +259,14 @@ powershell.exe -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Operating
 
 ## 注意事项
 
+### ⚠️ WSL 基础工具缺失
+
+此 WSL 环境中 `cat`、`wc`、`find`、`head` 等基础工具可能缺失，导致 `write_file`、`search_files` 等 Hermes Agent 工具失败。**不要重试失败的命令**，改用 Python stdlib 替代。
+
+参见 `references/wsl-basic-tools-workarounds.md` 获取完整替代方案清单（文件搜索、文件创建、语法检查、行数统计等场景）。
+
+也见下方「WSL Cron 环境工具可用性」了解 cron 模式的特殊情况。
+
 ### ⚠️ WSL Cron 环境工具可用性
 
 在 cron 模式下（非交互式 shell），`terminal` 和 `search_files` 工具调用的 bash 可能有极简 PATH，**`grep`、`head`、`find` 等标准命令可能报 "command not found"**。参见 `references/wsl-cron-tool-quirks.md` 了解详细症状和解决方法。

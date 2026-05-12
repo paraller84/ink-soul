@@ -1,8 +1,8 @@
 ---
 name: math-tutoring-system
 description: >-
-  三年级数学辅导系统（C003）— 试卷分析→统一错题本+解析试题仅保留试题→每日练习→复习宝典完善闭环。
-  v4.2：解析试题仅保留试题（strip_exam_answers），增强数学符号清理，分段处理管线。
+  数学模块（C003）— Edu-Hub 下的数学学科模块。基于 session 模式的在线答题系统（非文档驱动），含每日练习(10题新分布)、大挑战(20题/30分钟)、挑战题(7类)、综合题(5类)、积分共享、成就体系。
+  v7.0（2026-05-12）：从文档驱动全面转型为 session 模式 Web 应用。试卷分析→错题本→每日练习→大挑战。与英语 C008 架构对齐。
 version: 6.1.0
 author: Hermes Agent
 metadata:
@@ -31,6 +31,184 @@ metadata:
 > - **OPT-11 知识点自动推断**：infer_topic_from_question() 基于关键词+上下文推断
 > - **🔬 自检机制**：每个操作执行后自动验证结果（self_check.py）
 
+## ✅ v7.0 在线化转型（2026-05-12 实施完成）
+
+> 从文档驱动全面转向在线交互。**先设计→用户确认→再实施** 是本模块的标准改造流程。
+> 实施前必须做 **架构对齐检查**（对标英语模块 C008 v3/v4 的 Blueprint、session 模式、模块分离度），输出对比表供用户决策。
+> 详见 `references/v7-question-strategy-design.md` 和 `references/architecture-alignment-english-v3.md`。
+
+### 实施范围 & 状态
+
+| # | 改造项 | 状态 | 说明 |
+|:-:|:-------|:-----|:------|
+| 1 | **在线答题（替代文档生成）** | ✅ **已完成** | session模式API（逐题提交），模板激活，cron 7:00取消 |
+| 2 | **试卷批改 + 全量知识图谱更新** | 🔲 待实施 | 拍照上传→AI识别→批改→知识图谱更新 |
+| 3 | **积分体系（统一账户）** | ✅ **已完成** | import `english/v3/coins_manager.py`，共用币池 |
+| 4 | **大挑战模式** | ✅ **已完成** | 20题/30分钟倒计时/challenge_engine.py + session_manager.py |
+| 5 | **每日练习增强** | ✅ **已完成** | 10题新分布：变式2+基础2+进阶1+应用1+挑战1+综合2+口算1 |
+| 6 | **举一反三** | 🔲 待实施 | 分析上传试卷的出题模式→生成类似新题（需试卷批改后对接） |
+| 7 | **架构对齐** | ✅ **已完成** | 见 `references/architecture-alignment-english-v3.md` |
+
+### 学生交互路径（已确认）
+
+```
+角色选择 /math/
+  ↓ 选择"学生"
+学生首页 /math/student/ (NEW)
+  ├── 🎯 今日练习 → /math/practice/ (10题，增强版)
+  ├── 🏆 大挑战   → /math/challenge/ (NEW, 20题，30分钟倒计时)
+  ├── 📊 我的成就 → /math/achievements/ (NEW, 等级+金币+连续打卡)
+  └── 📖 错题复习 → /math/wrong-book/ (增强，可重做)
+```
+
+### 出题策略三层模型（已确认）
+
+```
+第一层 — 知识点选择（优先级排序）
+  0. 错题知识点（当天错题所属知识点）
+  1. 到期复习（艾宾浩斯间隔到）
+  2. 薄弱知识点（掌握度<60%）
+  3. ABC轮换（A每天/B隔天/C每周）
+  4. 平衡补充（应用+计算均衡）
+
+第二层 — 难度选择（按掌握度）
+  <40% → foundation（基础级）
+  40-70% → standard（标准级）
+  >70% → extension（拓展级）
+
+第三层 — 题型生成
+  18个现有生成器 + 7个挑战题生成器 + 5个综合题生成器
+```
+
+### 每日练习10题分布（已确认）
+
+```
+错题变式 2题 → 基础计算 2题 → 进阶计算 1题 → 标准应用题 1题
+→ 🧩 挑战题 1题 → 🌐 综合题 2题 → 口算 1题
+```
+
+### 大挑战规格（已确认）
+
+| 维度 | 值 |
+|:-----|:---|
+| 题量 | 20题（14 standard + 6 extension） |
+| 时限 | 30分钟倒计时，到点自动提交 |
+| 覆盖 | 最近7天所有知识点 + 全部薄弱点(<60%) |
+| 奖励 | 基础金币×2 + 正确率加成 |
+| 触发 | 学生首页自主点击，每日最多1次 |
+
+### 架构对齐要求（与英语 C008 v3 对比）
+
+| 维度 | 对齐判定 | 现状→目标 |
+|:-----|:---------|:----------|
+| 数据流模式 | ❌ 需改为 session 模式 | bundle→ session（start→current→submit→complete） |
+| 模块分离 | ❌ routes.py(35KB) 内联所有逻辑 | routes→路由 / practice_engine→出题 / challenge_engine→大挑战 / session_manager→会话 / coins_manager→复用英语 |
+| 学生首页 | ❌ 无独立入口 | 新增 student_portal.html（参考英语 portal_v4.html） |
+| API 风格 | ⚠️ 保持独立 | 不必完全 RESTful，但大挑战按英语 v4 的 `/api/v4/challenge/start` 模式 |
+
+### 实施前必须用户确认的环节
+
+1. **模板设计** → 先展示再实施（用户明确说"你先设计模板，在开始改造执行前先和我说一下"）
+2. **架构对比表** → 先展示对齐方案（本session已完成比对，输出6维度对比表）
+3. **执行矩阵** → 按 P0/P1/P2 分级，用户选执行范围
+
+### 架构对齐检查清单（改造前必做）
+
+改造数学模块前，先做以下对比：
+
+```python
+# 检查项（对照英语 v3）
+checklist = [
+    ("Blueprint注册方式", "register_blueprint + url_prefix"),
+    ("模板目录结构", "templates/v{version}/ 子目录"),
+    ("数据流模式", "session模式 vs bundle模式"),
+    ("模块分离度", "routes.py中抽出的engine/*.py"),
+    ("积分系统", "复用coins_manager.py"),
+    ("API风格", "RESTful /api/v{version}/ prefix"),
+]
+```
+
+输出对比表给用户确认后再开始编码。
+
+## 技术陷阱 — v7.0 实施教训（2026-05-12）
+
+### template-first 确认模式
+
+用户要求在编码前先展示模板设计。这是本模块改造的固定流程：
+
+```python
+# 正确的改造节奏
+Step 1: 设计模板/策略文档 → 用户确认
+Step 2: 架构对齐检查（对照英语模块）→ 用户确认
+Step 3: 编码实现 → 测试 → 交付
+```
+
+跳过 Step 1 直接编码会导致返工。
+
+### 实践页面空白 — API 返回格式缺少 questions 字段（2026-05-12）
+
+旧 API `/api/practice/today` 有两个返回路径：① `if bundle:` 从 `load_today_bundle()` 加载；② 兜底从 `generate_daily_practice()` 生成。**第一个路径的 `return jsonify(...)` 中缺少 `questions` 字段。**
+
+```python
+# ❌ 第一个路径（if bundle:）返回：
+return jsonify({
+    "calculations": calculations,
+    "word_problems": word_problems,
+    "date": ...,
+    "title": ...,
+    # ← 缺少 questions！
+})
+
+# ✅ 修复：两个路径都要加
+return jsonify({
+    "calculations": calculations,
+    "word_problems": word_problems,
+    "questions": q_list,
+    "date": ...,
+    "title": ...,
+})
+```
+
+前端 JS `if (!data.questions || data.questions.length === 0)` → `showEmptyState()` → 渲染空白。
+
+**排查方法**：页面标题正常、CSS加载、API 返回 200，但显示空白状态 → curl API 检查 `questions` 字段是否存在。
+
+**修复检查清单**：当修改 `api_practice_today()` 等 API 的返回体时，搜索所有 `return jsonify` 实例，确认每个路径都包含前端期待的字段。
+
+### challenge_bundle 已内含 session
+
+`generate_challenge_bundle()` 内部调用 `create_session()`，不须在 API 路由中再次创建。API 路由只需获取 `bundle["session_id"]` 即可。
+
+### session_manager 只能通过 sys.path 导入
+
+`challenge_engine.py` 中 `from session_manager import create_session` 需先添加 `_MATH_V2_DIR` 到 `sys.path`。不能依赖相对导入（Flask Blueprint 上下文不可用）。
+
+### order-of-operations / simplify-calculation 生成器参数不匹配
+
+`gen_order_of_ops()` 期望 `a_range, b_range, c_range` 三个参数，但 YAML 模板传递 `ops, num_range` 等顶层参数。这是 v6.0 已有的问题，不影响挑战题和综合题生成（挑战引擎会跳过无效模板，用其他模板补足到20题）。
+
+### 统一积分规则
+
+| 行为 | 金币 | 说明 |
+|:-----|:-----|:------|
+| 每日练习答对1题 | +1 | 日上限20 |
+| 完成练习 | +2 | 打卡奖励 |
+| 全对 | +5 | 额外奖励 |
+| 连续打卡3/7/14/30天 | +5/+15/+40/+100 | 里程碑 |
+| 大挑战完成 | 基础×2 | 答对+1变+2，完成+2变+4 |
+| 大挑战正确率加成 | +3~10 | 按正确率阶梯 |
+| 等级提升 | +50/+100/+200 | 青铜→白银→黄金→钻石 |
+
+### 举一反三机制（已确认需求）
+
+> 分析上传试卷的出题模式 → 自动生成类似新题。
+
+实现思路：
+1. 家长拍照/扫描上传已完成试卷
+2. 系统识别每道题的：题型（计算/应用/选择...）+ 知识点 + 数字范围 + 难度
+3. 基于识别的参数组合，调用对应的 generator 模板，换数字生成相似题
+4. 生成的相似题存入练习题库，可在后续练习中使用
+
 ## 系统组件
 
 | 组件 | 路径 | 用途 |
@@ -49,7 +227,7 @@ metadata:
 | **符号链接(v4.4)** | `~/edu-hub/scripts/edu_logger.py` → `~/.hermes/scripts/edu_logger.py` | **镜像版本去漂移** |
 | **🔬 自检模块(v6.0 NEW)** | **`~/.hermes/scripts/self_check.py`** | **每个操作执行后自动验证结果（飞书文档存在/重复条目/wrong_based填充/ABC分布）** |
 | **📰 学习日报(v6.0 NEW)** | **`~/.hermes/scripts/daily-report-cron.py`**, cron 7:30AM | **每日学习日报自动生成（错题回顾+趋势+薄弱TOP3+艾宾浩斯复习提醒+飞书发布）** |
-| **🌐 Web 增强版(v1.0 NEW)** | **`~/edu-hub/math/`**, 端口5001 | **Flask Web 应用: 学生在线做题(8计算+2应用, MathJax, 实时批改)+家长仪表盘(30知识点进度条)+错题本查看+学习日报+提示词文本导入(3场景)** |
+| **🌐 math_sys v2 Web Blueprint** | **`~/edu-hub/math_sys/v2/`** (34KB routes.py), 门户注册于 `/math/` | **Flask Web 应用: 学生在线做题(API提交)+家长仪表盘+错题本+学习日报+文本导入。⚠️ 模板已写好但在 `templates_unused/`，`templates/` 为空，未激活部署** |
 
 ## 统一错题本机制（v4.1核心变更）
 
@@ -239,37 +417,105 @@ python3 ~/.hermes/scripts/fix-daily-practice.py --help
 | 🕐 7:30 | 学习日报生成（错题回顾+趋势+薄弱TOP3+复习提醒+自检） | `72d68e37c0cf` | 🟢 v6.0 新增 |
 | 🕐 8:00, 20:00 | 原始题解析(统一错题本追加+同步state.wrong_questions+自检) | `f6771e5db4d4` |
 | 🕐 9:00 | Feishu→Wiki同步 | `d5329fd6e21f` |
-| 🕐 @reboot | C003 Web 自动启动 | crontab @reboot |
+| 🕐 — | C003 Web 自动启动 | ❌ **未部署**（模板在 templates_unused/ 未激活，需先部署） |
 
-## Web 增强版 v1.0（2026-05-01 上线）
+## Web 模块架构（math_sys v2 Blueprint）
 
-### 访问地址
-- **本地**: http://localhost:5001/v2/
-- **局域网**: http://192.168.3.102:5001/v2/ (需先运行 Windows 端口转发)
+> ⚠️ **实际架构 vs 旧版文档**：之前版本描述了一个 port-5001 独立 Flask 应用，但实际代码以 Blueprint 形式集成在 `~/edu-hub/math_sys/v2/` 中，通过门户 app.py 注册到 `/math/` 路由前缀。
 
-### 功能一览
+### 实际文件位置
 
-| 页面 | 路由 | 说明 |
+| 内容 | 路径 | 说明 |
 |:----|:-----|:-----|
-| 🎯 角色选择 | `/v2/` | 家长/学生入口选择 |
-| 📊 家长仪表盘 | `/v2/parent/dashboard?role=parent` | 今日练习状态、30知识点进度条、错题总数 |
-| ✏️ 学生做题 | `/v2/practice/?role=student` | 逐题作答，MathJax渲染，虚拟数字键盘，实时批改 |
-| 📝 错题本 | `/v2/wrong-book/?role=parent` | 按知识点筛选，查看解析 |
-| 📰 学习日报 | `/v2/report/?role=parent` | 日报摘要、薄弱TOP3、学习建议 |
-| 📥 文本导入 | `/v2/import/?role=parent` | 3场景提示词模板→外部AI识别→粘贴导入 |
+| Blueprint 注册 | `~/edu-hub/math_sys/v2/__init__.py` | Flask Blueprint `math_v2` |
+| **全部路由与API** | **`~/edu-hub/math_sys/v2/routes.py`** (34KB) | **16条路由/API，含在线答题、提交批改、错题本、日报** |
+| 状态管理器 | `~/edu-hub/math_sys/v2/state_manager.py` | 掌握度、错题、练习日志管理 |
+| 文本导入器 | `~/edu-hub/math_sys/v2/text_importer.py` | 外部AI识别文本导入 |
+| 门户注册 | `~/edu-hub/app.py` | `register_blueprint(math_v2, url_prefix="/math")` |
+| **模板目录（空）** | **`~/edu-hub/math_sys/v2/templates/`** | **蓝图引用此目录但为空 → 页面渲染失败** |
+| **模板文件（未启用）** | **`~/edu-hub/math_sys/v2/templates_unused/`** | **全部HTML模板在此，需移入 `templates/` 激活** |
+| 静态文件 | `~/edu-hub/math_sys/v2/static/style.css` (19KB) | 深色科技风CSS |
+| 练习题库 | `~/edu-hub/math_sys/data/practice_bundle.json` | 预置练习题目 |
 
-### 管理命令
+### 已实现的路由与API
+
+| 路由 | 功能 | 状态 |
+|:----|:-----|:-----|
+| `GET /` | 角色选择（家长/学生） | 模板在templates_unused |
+| `GET /parent/dashboard` | 家长仪表盘 | 同上 |
+| `GET /practice/` | 学生在线做题（MathJax渲染） | 同上 |
+| `GET /wrong-book/` | 错题本查看 | 同上 |
+| `GET /report/` | 学习日报 | 同上 |
+| `GET /import/` | 文本导入（3场景提示词） | 同上 |
+| `GET /api/dashboard` | 仪表盘数据 | 代码就绪 |
+| `GET /api/practice/today` | 今日练习题目 | 代码就绪 |
+| `POST /api/practice/submit` | 答题提交+实时批改 | 代码就绪 |
+| `GET /api/wrong-book` | 错题本数据 | 代码就绪 |
+| `GET /api/daily-report` | 日报数据 | 代码就绪 |
+| `POST /api/practice/save-wrong` | 保存错题 | 代码就绪 |
+| `POST /api/practice/save-result` | 保存练习结果 | 代码就绪 |
+| `GET /api/import/prompts` | 导入提示词 | 代码就绪 |
+| `POST /api/import/submit` | 提交导入内容 | 代码就绪 |
+
+### 激活步骤（待执行）
+
 ```bash
-python3 ~/edu-hub/scripts/c003-web-manager.py start    # 启动
-python3 ~/edu-hub/scripts/c003-web-manager.py stop     # 停止
-python3 ~/edu-hub/scripts/c003-web-manager.py status   # 状态
-python3 ~/edu-hub/scripts/c003-web-manager.py logs     # 日志
+# 将模板从 templates_unused/ 移到 templates/
+cp -r ~/edu-hub/math_sys/v2/templates_unused/* ~/edu-hub/math_sys/v2/templates/
+# 重启门户服务
+python3 ~/edu-hub/scripts/c003-web-manager.py restart
 ```
 
-### 端口转发（Windows 管理员运行）
+### v7.0 在线 API（新增，session模式）
+
+| 路由 | 方法 | 功能 |
+|:-----|:----|:-----|
+| `/math/student/` | GET | 🎯 学生首页门户 |
+| `/math/challenge/` | GET | 🏆 大挑战页面 |
+| `/math/achievements/` | GET | 📊 成就页 |
+| `/math/api/v2/practice/start` | POST | 开始每日练习（10题，含挑战+综合题） |
+| `/math/api/v2/challenge/start` | POST | 开始大挑战（20题/30分钟限时） |
+| `/math/api/v2/session/{id}/current` | GET | 获取当前题目（不含答案） |
+| `/math/api/v2/session/{id}/submit` | POST | 提交一题答案，返回正确/错误+正确答案 |
+| `/math/api/v2/session/{id}/complete` | POST | 完成会话+更新知识图谱掌握度+错题本入库 |
+| `/math/api/v2/coins/balance` | GET | 获取金币余额（共享英语v3币池） |
+
+### 实践页面UI陷阱（2026-05-12）
+
+详见 `references/practice-ui-pitfalls.md`：
+
+1. **word_problem 类型无输入框** — `renderQuestion()` 未处理 `word_problem`/`calculation` 类型，题目显示后无任何输入控件。修复：增加 handler 分支。
+2. **无返回导航** — 做题页面头部无返回按钮，必须做完所有题目才能退出。修复：增加 ← 返回按钮。
+
+所有修改需重启 Flask 应用才能生效（模板缓存）。
+
+### 设计陷阱
+
+- **templates/ vs templates_unused/**：Blueprint 的 `template_folder="templates"` 指向空目录。怀疑是开发过程中模板被移出但未同步激活。部署前需核对模板中的静态引用路径是否正确。
+- **`~/edu-hub/math/` 目录（非 math_sys）**：这个目录仅有 `data/` 子目录，是另一个不完整的 Web 尝试，与当前架构无关。
+- **state_manager 与文档管线的状态文件（`edu-system-state.json`）不同步**：Web 版有自己的状态管理，与 cron 文档管线的状态文件是两套数据源。整合时需决定统一数据源。
+
+### 会话管理（v7.0 新增）
+
+| 组件 | 路径 | 用途 |
+|:----|:-----|:-----|
+| Session管理器 | `~/edu-hub/math_sys/v2/session_manager.py` | Session生命周期管理（创建/读题/提交/完成），JSON文件持久化 |
+| 大挑战引擎 | `~/edu-hub/math_sys/v2/challenge_engine.py` | 大挑战出题（20题/30分钟限时）、批改、金币计算 |
+
+### 学生端模板（v7.0 激活）
+
+| 模板 | 路径 | 说明 |
+|:-----|:-----|:------|
+| 学生首页 | `templates/v2/student_portal.html` | 新手引导式卡片布局：金币/等级+练习+挑战+成就+错题 |
+| 大挑战页 | `templates/v2/challenge/session.html` | 倒计时进度条+逐题API+结果页+金币奖励动画+confetti |
+| 成就页 | `templates/v2/achievements.html` | 等级进度条(7级)/金币统计/连续打卡/勋章墙(12枚)/本月柱状图 |
+
 ```bash
-# 脚本位置: ~/edu-hub/scripts/port-forward-math-wsl.cmd
-netsh interface portproxy add v4tov4 listenaddress=192.168.3.102 listenport=5001 connectaddress=<WSL-IP> connectport=5001
+# 启动Web模块（通过门户）
+cd ~/edu-hub && python3 app.py
+
+# 检查Web是否运行
+curl -s http://localhost:5000/math/health | python3 -m json.tool
 ```
 
 ### ×符号冲突
@@ -339,6 +585,8 @@ edu-hub 镜像版本（`edu-hub/scripts/`）与主版本（`.hermes/scripts/`）
 Token 修改只需操作 `~/.hermes/feishu-tokens.json` 一个文件。
 
 > 适配器架构详解参见 `references/v4.5-adapter-architecture.md`（从 exam-grading-pipeline 合并）。
+> Agent上下文调用C003脚本参见 `references/agent-execution-guide.md`（execute_code沙箱中的importlib加载+预检查清单+工具异常处理）。
+> **实际架构调查（2026-05-12）**：`references/web-system-survey-2026-05-12.md` — 包含 math_sys v2 Blueprint 实际状态、templates_unused/ 激活问题、两套数据源分析、coins_manager 跨系统端口模式。
 
 ## 常用命令
 
@@ -387,13 +635,17 @@ results = SelfCheck.run_practice_checks(practice, child_data, doc_token)
 Python 脚本通过 `import` 语句无法导入文件名包含连字符的模块（如 `daily-practice-cron.py`）。必须使用 `importlib`:
 
 ```python
-import importlib.util
+import importlib.util, sys
+
 spec = importlib.util.spec_from_file_location(
     'module_alias', '/path/to/daily-practice-cron.py')
 module = importlib.util.module_from_spec(spec)
+sys.modules['module_alias'] = module  # ← 必须注册！否则模块内跨模块 import 会失败
 spec.loader.exec_module(module)
 # 使用: module.function_name()
 ```
+
+**⚠️ 关键陷阱**: `sys.modules[alias] = module` 不能省略。如果被加载的模块内部有 `from edu_system_common import *` 等跨模块导入，且 `edu_system_common` 通过相对路径或 `sys.path` 查找，未注册会导致 `ModuleNotFoundError`。这个注册让 Python 的导入系统能找到已加载的模块。
 
 **适用场景**: 测试验证、集成测试、跨模块函数调用。  
 **替代方案**: 在 `__init__.py` 中加别名，或使用 `sys.path.insert` + 文件名替换。

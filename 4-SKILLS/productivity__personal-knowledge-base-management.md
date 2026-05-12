@@ -33,10 +33,10 @@ WPSDocument (递归扫描) → 整理(去重+版本+分类) → 知识库文档 
 
 | 阶段 | 目录 | 文件数（实测） | 作用 |
 |------|------|--------------|------|
-| **① 输入源** | `G:/WPSDocument/` | **3,579 文件** | 原始文件，含子目录 |
+| **① 输入源** | `G:/WPSDocument/` | **5,508 文件** | 原始文件，含子目录 |
 |  | 根目录/ | 1,664 | 根目录直接存放的文件 |
-|  | WPS云盘/ | 1,898 | WPS 自动同步的子目录 |
-|  | 我的邮件/ | 17 | 邮件导出 |
+|  | WPS云盘/ | 3,500+ | WPS 自动同步的子目录（含邮件） |
+|  | 我的邮件/ | 17 | WPS 导出邮件 |
 |  | | | |
 | **② 中间产物** | `G:/知识库文档/` | **1,088 整理后** | 去重+版本管理+分类后 |
 |  | _archive/ | 1,593 | 重复/旧版本的归档副本 |
@@ -50,7 +50,9 @@ G盘文件系统/
 ├── WPSDocument/                    # 🔴 唯一输入源（递归扫描所有子目录）
 │   ├── (根目录文件, 1,664)
 │   ├── WPS云盘/                    # ← 容易漏掉！WPS 自动生成
-│   └── 我的邮件/                   # ← 容易漏掉！邮件导出
+│   │   └── 邮件/                   # ← 2026-05 新增！用户手动同步的邮件归档
+│   │       └── EAST邮件/           #    290+ .eml 文件（持续增长）
+│   └── 我的邮件/                   # ← 容易漏掉！WPS 导出邮件
 │
 └── 知识库文档/                      # 🟢 整理产物（不要误当作源头）
     ├── PDF 文档/  Word 文档/  PPT 文档/
@@ -313,11 +315,11 @@ Step ③ 增量向量化
 ```
 
 **状态文件**：
-| 缓存 | 路径 | 用途 |
-|------|------|------|
-| WPS扫描缓存 | `cache/wpsdoc_cache.json` | WPSDocument 文件状态快照（路径+大小+修改时间） |
-| 整理缓存 | `cache/organize_cache.json` | 每次整理的决策记录 + 规则版本号 |
-| 嵌入缓存 | `cache/embedding_cache.json` | 已计算的文本嵌入（MD5 文本哈希键值） |
+| 缓存 | 实际路径 | 文档中写的路径 | 用途 |
+|------|---------|---------------|------|
+| WPS扫描缓存 | `~/.hermes_tools/knowledge_base/wpsdoc_cache.json` | ~~cache/wpsdoc_cache.json~~ | WPSDocument 文件状态快照（路径+大小+修改时间），**代码写的是 parent 目录而非 cache/ 子目录** |
+| 整理缓存 | `~/.hermes_tools/knowledge_base/cache/organize_cache.json` | — | 每次整理的决策记录 + 规则版本号 |
+| 嵌入缓存 | `~/.hermes_tools/knowledge_base/cache/embedding_cache.json` | — | 已计算的文本嵌入（MD5 文本哈希键值） |
 
 ## 二次整理机制（resync — 规则变更后使用）
 
@@ -414,6 +416,10 @@ python3 -c "import chromadb; import pypdf; import docx; import pptx; import requ
 ⑤ Cron 日志
    tail -50 ~/.hermes_tools/knowledge_base/logs/cron.log
    → 确认最近一次失败的原因
+
+> 📎 参考文件：
+> - `references/ollama-host-fix-and-cron-setup.md` — OLLAMA_HOST 修复、crontab 路径修正、缺失 cron 创建、强制全量重建
+> - `references/eml-file-ingestion.md` — .eml 邮件文件→知识库的三步法：复制→文本提取→附件提取→向量化
 ```
 
 ## 实战陷阱（从这次优化中发现）
@@ -475,7 +481,73 @@ print("进度信息", flush=True)
 sys.stdout.flush()
 ```
 
-### 陷阱 11：ChromaDB 安装需长超时
+### 陷阱 13：OLLAMA_HOST 硬编码为 Docker 桥接 IP（⚠️ 高频故障）
+
+**所有 4 个脚本**（kb_pipeline.py / kb_health.py / kb_retrieve.py / kb_vectorize.py）硬编码了
+`OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://172.19.144.1:11434")`。
+
+**问题**：`172.19.144.1` 是 Docker 桥接 IP，WSL 重启或 Docker 重启后可能变化。
+如果 Ollama 监听 `localhost:11434` 但脚本连的是 Docker IP，**健康检查通过但全流程失败**。
+
+**修复命令**（一次性）：
+```bash
+sed -i 's|http://172.19.144.1:11434|http://localhost:11434|g' \
+  /home/openclaw/.hermes_tools/knowledge_base/scripts/kb_pipeline.py \
+  /home/openclaw/.hermes_tools/knowledge_base/scripts/kb_health.py \
+  /home/openclaw/.hermes_tools/knowledge_base/scripts/kb_retrieve.py \
+  /home/openclaw/.hermes_tools/knowledge_base/scripts/kb_vectorize.py
+```
+
+**预防**：设置环境变量 `OLLAMA_HOST=http://localhost:11434` 覆盖默认值。
+
+### 陷阱 14：`--full` / `--organize-only` / `--vectorize-only` 不触发增量扫描
+
+⚠️  pipeline 只有**默认模式（无参数）**会执行 `scan_wpsdocument_incremental()`。
+`--full`、`--organize-only`、`--vectorize-only`、`--resync` 这些**带 flag 的模式都跳过扫描步骤**，
+直接进入组织器/向量化器。
+
+**后果**：如果 `wpsdoc_cache.json` 不存在或被清理，运行 `--full` 并不会重新扫描——
+它会加载空缓存、走组织器、报告「0 变更」，然后退出。
+
+**正确做法**：要强制重新扫描所有 5,508 文件，必须先删除缓存，再执行默认模式：
+
+```bash
+# ❌ 无效
+python3 kb_pipeline.py --full
+
+# ✅ 正确
+rm -f ~/.hermes_tools/knowledge_base/wpsdoc_cache.json
+rm -f ~/.hermes_tools/knowledge_base/cache/organize_cache.json
+python3 kb_pipeline.py         # ← 无参数，触发完整增量扫描
+```
+
+**原理**：`scan_wpsdocument_incremental()` 对比 `wpsdoc_cache.json` 的签名（size:mtime）。
+缓存为空 → 所有 5,508 文件都标记为「新增」→ `has_changes=True` → 依次触发组织器和向量化器。
+
+### 陷阱 15：Cron 最小 PATH 下 Python 找不到 Hermes venv
+
+系统 crontab 使用最小 PATH（`/usr/bin:/bin`），其中 `python3` 是系统 Python 3.12.3
+（不包含 chromadb/pypdf/docx）。Hermes venv python 在
+`/home/openclaw/.hermes/hermes-agent/venv/bin/python3`（Python 3.11.15，含依赖）。
+
+**症状**：cron.log 报「缺失依赖: chromadb, docx, pptx」但交互式 shell 下 pip list 全在。
+
+**修复**：crontab 中用绝对路径替换裸 `python3`：
+```bash
+# crontab 条目示例（注意不要用 ~，cron 不展开）
+0 23 * * * cd /home/openclaw && /home/openclaw/.hermes/hermes-agent/venv/bin/python3 \
+  /home/openclaw/.hermes_tools/knowledge_base/scripts/kb_pipeline.py --report \
+  >> /home/openclaw/.hermes_tools/knowledge_base/logs/cron.log 2>&1
+```
+
+### 陷阱 16：`.eml` 邮件文件进入知识库但无专用分类
+
+`WPSDocument/WPS云盘/邮件/` 和 `WPSDocument/我的邮件/` 中的 `.eml` 文件会被流水线递归扫描。
+但 kb_organize.py 的 7 级去重规则按扩展名分类，`.eml` 文件不属于
+PDF/Word/PPT/会议纪要/方案文档/汇报材料/其他 七类中的任何一类，全部落入「其他」类别。
+
+**影响**：不会丢数据（`_archive` 只去重不丢弃），但知识库文档目录中
+「其他」类别会膨胀。如需分类支持，需在 organize 规则中新增 `.eml` → 邮件归档 的映射。
 
 ```bash
 # ❌ 默认超时不够
@@ -582,6 +654,14 @@ read_file ~/wiki/raw/systems/life-compass/portraits/workplace/老苏-v1.md
 
 ## 更新日志
 
+- v2.3.0 (2026-05-12): 新增 OLLAMA_HOST / Cron / --full 陷阱 + .eml 分类缺口
+  - 🚨 新增陷阱 13: OLLAMA_HOST 硬编码 Docker IP（4 脚本痛点）
+  - 🚨 新增陷阱 14: `--full`/`--organize-only`/`--vectorize-only` 跳过增量扫描
+  - 🚨 新增陷阱 15: Cron 最小 PATH 下 Python 找不到 Hermes venv
+  - 🚨 新增陷阱 16: `.eml` 邮件文件进入知识库但无专用分类
+  - 📝 修正: `wpsdoc_cache.json` 路径（代码写 parent 目录而非 cache/）
+  - 📝 修正: 文件计数 3,579→5,508；新增 `WPS云盘/邮件/` 子目录说明
+  - 📎 新增: `references/ollama-host-fix-and-cron-setup.md` 参考文件
 - v2.2.0 (2026-04-26): 新增实战陷阱（多进程hang/后台缓冲/Chromadb安装/底层调用）: 新增 resync 机制 + 健康检查
   - 🆕 新增：二次整理机制（resync），规则变更后自动清理旧文件
   - 🆕 新增：RULE_VERSION 规则版本追踪和自动检测
