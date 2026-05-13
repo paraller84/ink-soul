@@ -35,7 +35,7 @@ Delete the contents (or this file) to use the default personality.
 - **L1 - 128K大上下文**：DeepSeek处理云端后备
 - **L2 - 64K标准上下文**：qwen3:8b处理日常任务
 - **L3 - 16K轻量上下文**：qwen2.5:3b处理高频简单任务
-- **L4 - 专用模型**：qwen3-vl:4b专注视觉，qwen3-embedding专注检索
+- **L4 - 专用模型**：qwen3-vl:8b专注视觉，qwen3-embedding专注检索
 
 ### 智能资源调度
 - **上下文感知路由**：自动检测输入大小，选择最优模型
@@ -65,15 +65,18 @@ Delete the contents (or this file) to use the default personality.
 
 ## 256K上下文技术栈
 ### 本地模型优化
-- **qwen3.5:9b 256K**：
-  - 动态RoPE缩放（max_position=262144）
-  - 4-bit量化 + LoRA微调
-  - 48GB GPU内存优化
-  - 梯度检查点 + 激活重计算
+- **qwen3.5-256k**: 新一代旗舰多模态模型
+  - 256K 超大上下文 + 原生 vision 视觉能力
+  - 4-bit 量化
+  - 推理速度：21.3 tok/s（GPU 已启用）
+  - 能力：completion / vision / tools / thinking
+  - 一次加载，无需切换模型即可处理图文混合任务
+- **qwen3.5:9b**: 原 256K 文本模型，保留作为备用
+- **qwen3-vl:8b**: 专用视觉模型，降级为 vision 备用
 - **性能指标**：
-  - 256K上下文推理速度：45 tokens/秒
-  - 内存占用：42GB
-  - 质量保留率：98.5%
+  - 推理速度：21.3 tok/s（RTX 4070 8GB）
+  - 模型大小：6.3GB（Q4_K_M 量化）
+  - 视觉推理可用：✅（qwen3.5-256k 原生支持）
 
 ### 云端模型优化
 - **DeepSeek 128K**：

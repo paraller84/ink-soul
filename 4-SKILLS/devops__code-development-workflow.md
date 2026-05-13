@@ -6,7 +6,7 @@ description: >-
   通过路径引用传递依赖，消除上下文膨胀。
   支持选择性重跑、血缘追踪和可审计的执行链路。
   继承 v2.2 的全云端模型策略和负载等级体系。
-version: 3.11.0
+version: 4.0.2
 author: Hermes Agent
 metadata:
   hermes:
@@ -51,16 +51,17 @@ metadata:
   Step 0: ✅ 需求分析            已完成
   Step 1: ✅ 代码学习            已完成
   Step 2: 🔄 架构设计            ◀ 进行中
-  Step 2.5: ❏ UI/UE设计(按需)   待开始
+  Step 2.5: ❏ 骨架搭建         待开始
+  Step 2.6: ❏ UI/UE设计(按需)   待开始
   Step 3: ❏ 工程实现            待开始
   Step 4: ❏ 质量测试            待开始
   Step 5: ❏ 集成与交付          待开始
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📍 当前位置: Step 2 — 架构设计子代理执行中
-📊 完成度: 2/7 步 (28%)
+📊 完成度: 2/8 步 (25%)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ✅ 已完成: 需求确认完成 / 代码学习交付物已输出
-  🔮 下一步: 架构交付物 → UI/UE设计(按需) → 编码
+  🔮 下一步: 架构交付物 → 骨架搭建 → UI/UE设计(按需) → 编码
   ⚠️ 风险/待确认: 无
 ```
 
@@ -76,16 +77,17 @@ metadata:
     ├─ ▶ 子代理 A (架构视角): ✅ 交付物已输出
     └─ ▶ 子代理 B (实现视角): ✅ 交付物已输出
   Step 2: ✅ 架构设计            [[design_v1.json]]
-  Step 2.5: ❏ UI/UE设计(按需)
+  Step 2.5: ❏ 骨架搭建
+  Step 2.6: ❏ UI/UE设计(按需)
   Step 3: 🔄 工程实现            ◀ 进行中
   Step 4: ❏ 质量测试
   Step 5: ❏ 集成与交付
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📍 当前位置: Step 3 — 子代理编码中 (等待返回)
-📊 完成度: 4/7 步 (57%)
+📊 完成度: 4/8 步 (50%)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   📂 交付物: req_analysis_v1.json → learn_arch_v1.json → learn_impl_v1.json → design_v1.json
-  🔮 下一步: 编码完成 → 质量门禁 → 集成交付
+  🔮 下一步: 骨架完成 → 编码 → 质量门禁 → 集成交付
 ```
 
 ### 1.2 非 C005 复杂任务的通用进度面板
@@ -216,14 +218,16 @@ metadata:
 
 ```
 req_analysis_v1 (parent: null)
-  ├── learn_arch_v1 (parent: req_analysis_v1)
-  │   └── design_v1 (parent: learn_arch_v1)
-  └── learn_impl_v1 (parent: req_analysis_v1)
+├── learn_arch_v1 (parent: req_analysis_v1)
+│   └── design_v1 (parent: learn_arch_v1)
+└── learn_impl_v1 (parent: req_analysis_v1)
        └── design_v1 (同上)
-              └── ui_ue_design_v1 (parent: design_v1)  [按需]
-                     └── implement_v1 (parent: ui_ue_design_v1 | design_v1)
-                            └── test_v1 (parent: implement_v1)
-                                   └── integrate_v1 (parent: test_v1)
+              ├── skeleton_v1 (parent: design_v1)  [强制]
+              │   └── ui_ue_design_v1 (parent: skeleton_v1)  [按需]
+              │        └── implement_v1 (parent: ui_ue_design_v1 | skeleton_v1)
+              └── implement_v1 (parent: skeleton_v1)  [无UI时]
+                     └── test_v1 (parent: implement_v1)
+                            └── integrate_v1 (parent: test_v1)
 ```
 
 血缘图谱存储：`~/edu-hub/artifacts/<task_id>/lineage.json`
@@ -273,7 +277,13 @@ req_analysis_v1 (parent: null)
       ├── learn_arch_v1.json              # Step 1A 交付物
       ├── learn_impl_v1.json              # Step 1B 交付物
       ├── design_v1.json                  # Step 2 交付物
-      ├── ui_ue_design_v1.json            # Step 2.5 交付物 [按需]
+      ├── skeleton_v1.json                # Step 2.5 交付物 [强制]
+      ├── ui_ue_design_v1.json            # Step 2.6 交付物 [按需]
+      ├── skeleton_v1/                   # Step 2.5 骨架（目录结构）
+      │   ├── manifest.json              # 骨架清单
+      │   ├── python_skeleton/           # Python 骨架文件
+      │   ├── template_skeleton/         # HTML 骨架文件
+      │   └── dependency_graph.md        # 方法调用/页面引用关系
       ├── implement_v1.json               # Step 3 交付物
       ├── test_v1.json                    # Step 4 交付物
       ├── integrate_v1.json               # Step 5 交付物
@@ -316,6 +326,12 @@ req_analysis_v1 (parent: null)
 
 **所有 Bug 修复任务，必须先走 C007 Mode D，再进入 C005 等级决策。**
 
+> **用户沟通提示**：在告知用户需要 C007 Mode D 时，先简要解释流程（1-2句话）：
+> 「C007 是顾问团系统，由多个专家角色做根因分析后再动手编码。模式 D 是 Bug 修复专用流程——先做根因分析再出修复方案，防止修了表面没修根因。」
+> 用户可能不熟悉「C007 Mode D」这个内部术语，直接抛术语会让用户困惑（如反问「什么是C007 D？」）。先解释再推进。
+
+**治理模式**: 模式 C（标记后跑）— 仅修 Bug 本身，不重构老代码。在修改过的文件中加入 `# TODO(refactor): ` 标记，并在交付物中记录「此文件尚有 N 处待治理」。
+
 ```python
 def pre_c005_check(task_type: str) -> str:
     \"\"\"
@@ -323,9 +339,9 @@ def pre_c005_check(task_type: str) -> str:
 
     返回: "continue_c005" | "route_to_c007_mode_d"
     \"\"\"
-    bug_fix_keywords = ["bug", "修复", "错误", "异常", "500", "404",
-                        "不对", "不行", "坏了", "有问题", "错了",
-                        "不跳转", "不显示", "不生效", "报错"]
+    bug_fix_keywords = [\"bug\", \"修复\", \"错误\", \"异常\", \"500\", \"404\",
+                        \"不对\", \"不行\", \"坏了\", \"有问题\", \"错了\",
+                        \"不跳转\", \"不显示\", \"不生效\", \"报错\"]
 
     if task_type == "bug_fix":
         return "route_to_c007_mode_d"
@@ -386,8 +402,8 @@ C007 Mode D 输出根因分析报告和修复方案后，C005 再根据方案分
 > 即使规模匹配 Tier 2/3，也有权跳过 Step 1（代码学习）和 Step 2（架构设计）：
 >
 > ```
-> 正常流程：Step 0 → Step 1(学习) → Step 2(设计) → Step 2.5(UI) → Step 3(实现) → ...
-> 加速路径：Step 0 → Step 2.5(UI/UE设计) → Step 3(实现) → Step 4(测试) → Step 5(交付)
+> 正常流程：Step 0 → Step 1(学习) → Step 2(设计) → Step 2.5(骨架) → Step 2.6(UI) → Step 3(实现) → ...
+> 加速路径：Step 0 → Step 2.5(骨架) → Step 2.6(UI/UE设计) → Step 3(实现) → Step 4(测试) → Step 5(交付)
 >                     ↑
 >               跳过 Step 1 和 Step 2
 >               （因为无逻辑代码需要学习，无架构需要设计）
@@ -413,9 +429,50 @@ python3 ~/.hermes/scripts/pre-c005-assess.py \
 
 ## 三、按等级的完整流程定义（交付物驱动版）
 
+## 老代码治理策略：渐进边界法
+
+> 每次 C005 任务改造现有代码时，不仅要交付新功能，还要将被触碰的代码提升到当前标准。
+> 核心原则：不欠新债，逐步还旧债。
+
+### 改幅分级
+
+| 改幅 | 对应 Tier | 治理模式 | 要求 |
+|:----|:---------|:---------|:-----|
+| **大改** (>100行) | Tier 2+ | **模式 A**: 先修后改 | Step 2.4 合规审计 → 重构骨架 → 填充逻辑 |
+| **小改** (20-100行) | Tier 1 | **模式 B**: 只修不动 | 仅修复直接触碰的代码行，其余打标记 |
+| **Bug修复** | C007 Mode D | **模式 C**: 标记后跑 | 仅修 Bug，文件中留 TODO(refactor) 标记 |
+
+### 红线规则（必须修复，不可放行）
+
+| 违规项 | 检查方式 | 对应陷阱 |
+|:-------|:---------|:---------|
+| `href="#"` 在导航链接中 | `grep -n 'href="#' templates/*.html` | 陷阱28 |
+| 硬编码 API 路径 | `grep -nP "['"]/api/v[0-9]/" routes.py` | B3 |
+| 目录与内置模块同名 | `find . -type d -name 'math\|os\|sys\|io'` | 陷阱1 |
+| 模板变量名与 route 参数不匹配 | 骨架阶段自动比对 | 陷阱26 |
+| 数据字段双重语义 | 代码审查 | 陷阱23 |
+| 双返回路径只改其一 | `grep -n 'return jsonify' *.py | 陷阱29 |
+
+### 治理节奏
+
+```
+每次 C005 任务 = 为老代码做一次「局部翻新」
+
+  time →  老代码健康度
+  T1: 修功能A → 清理 file1.py (硬编码修复+type hints)    80%  ↑
+  T2: 修功能B → 清理 file2.py (return路径统一)           85%  ↑
+  T3: 新功能C → 清理 file3.py (目录改名)                 90%  ↑
+  T4: Bug修复 → 标记 file4.py (TODO refactor)           90%  →
+                —— 健康度总体上升，不是下降 ——
+```
+
+---
+
 ### ★☆☆ Tier 0: 极速通道
 
 **条件**: < 20 行 + 单文件 + 无依赖 + 有测试用例
+
+**治理模式**: 模式 B（只修不动）— 仅修复直接触碰的代码行，其余不动。
 
 **交付物模式**: 极速通道视为单一原子步骤，输出交付物直接到 `artifacts/<task_id>/step_tier0_v1.json`
 
@@ -444,6 +501,8 @@ python3 ~/.hermes/scripts/pre-c005-assess.py \
 
 **条件**: 20-100 行 + 1-2 文件
 
+**治理模式**: 模式 B（只修不动）— 仅修复直接触碰的代码行（硬编码路径、死链接、类型注解缺失），其余代码打 `# TODO(refactor): ` 标记。
+
 **交付物模式**: 每个子步骤输出独立交付物到 `artifacts/<task_id>/`
 
 **流程**:
@@ -467,11 +526,17 @@ python3 ~/.hermes/scripts/pre-c005-assess.py \
     "next_step": "learn"
   }
   ```
+  `next_step` 根据任务类型决定：`"learn"`（正常）、`"skeleton"`（C007 加速）、`"implement"`（绿地加速）
+
+**环境自动检测**：Step 0 输出后立即执行，注入到 Step 1 的 context 中：
+```bash
+python3 ~/.hermes/scripts/environment-audit.py --context
+```
+检测结果包含：平台类型/GPU状态/Ollama版本/磁盘空间/端口状态等已知限制，加入后续步骤的 context 中作为 `platform_constraints` 约束。
 
 #### Step 1: 代码学习（1个子代理）
 
 **前置步骤：Token Savior 调用者分析（v3.9 新增）**
-
 在派发代码学习子代理前，先用 Token Savior 对 target_files 中的关键函数/类执行 `get_dependents` 分析，识别被广泛调用的公共符号。这些符号的签名应标记为「不可修改」，纳入 `no_touch_zones`。
 
 ```python
@@ -522,7 +587,54 @@ context = f"""
 #### Step 2: 架构设计
 **跳过** — Tier 1 不涉及复杂架构变更。
 
-#### Step 2.5: UI/UE 设计（按需）
+#### Step 2.5: 骨架搭建（强制）
+
+**适用**: 所有 Tier 1+ 任务，Step 2(架构设计)之后必经步骤。
+
+**模型**: 我（DeepSeek R1）— 不创建子代理，直接完成
+
+**产出目录**: `artifacts/<task_id>/skeleton_v1/`
+
+**产出物**:
+```
+skeleton_v1/
+  ├── python_skeleton/   # .py骨架（import + class + def签名 + route + return结构）
+  ├── template_skeleton/ # .html骨架（extends + block + 变量引用）
+  └── dependency_graph.md
+```
+
+**骨架验证清单**:
+```
+□ 所有 import 已就位（可执行）
+□ 所有 class/def 已定义（含类型注解）
+□ 所有 route 装饰器 + url_for 已使用
+□ 所有 return 结构已定型（多路径一致）
+□ compile() 语法检查通过
+□ 无 hardcoded 路径
+□ 无 href="#" 占位
+□ 目录名不与 Python 内置模块冲突
+□ 模板变量名与 route 参数名一致
+```
+
+**输出交付物** (`artifacts/<task_id>/skeleton_v1.json`):
+```json
+{
+  "step_id": "skeleton_v1",
+  "parent_step_id": "design_v1",
+  "status": "success",
+  "result": {
+    "files_created": ["path/to/engine.py", "path/to/template.html"],
+    "syntax_check": "PASS",
+    "hardcoded_paths_found": 0,
+    "variable_mismatches_found": 0,
+    "return_path_consistency": "PASS"
+  },
+  "next_step": "ui_ue_design|implement"
+}
+```
+
+#### Step 2.6: UI/UE 设计（按需）
+
 **条件**: 仅当任务涉及交互页面功能时启用（由 Step 0 需求分析判定）
 
 **模型**: 我（DeepSeek R1）— 不创建子代理，直接完成
@@ -562,6 +674,13 @@ context = f"""
 
 **模型**: **DeepSeek R1**（云端模型，所有角色统一使用云端推理）
 
+**后置验证（强制）**: 每次 patch() 后对修改文件执行：
+```bash
+# 语法检查 + 硬编码路径 + 内置模块冲突检测
+python3 ~/.hermes/scripts/post-patch-verify.py path/to/file.py
+# 同一文件 ≥ 3 次 patch → 读全量后用 write_file 重写
+```
+
 **输出交付物** (`artifacts/<task_id>/implement_v1.json`):
 ```json
 {
@@ -570,6 +689,8 @@ context = f"""
   "status": "success",
   "result": {
     "files_modified": [{"path": "...", "change_type": "create|patch|delete"}],
+    "patch_count_per_file": {"file.py": 2},
+    "post_patch_verify": "PASS",
     "verification_steps": ["python3 -c \"...\""],
     "patches_applied": 3
   },
@@ -666,6 +787,8 @@ if os.path.exists(quality_gate):
 ### ★★★ Tier 2: 标准级
 
 **条件**: 100-500 行 + 2-5 文件
+
+**治理模式**: 模式 A（先修后改）— Step 2.4 合规审计 → Step 2.5 重构骨架 → Step 3 填充新逻辑。
 
 **交付物模式**: 各子代理独立输出交付物，通过血缘图谱 DAG 进行依赖管理
 
@@ -781,19 +904,97 @@ context = f"""
     "implementation_priority": ["Task A", "Task B"],
     "risks": ["风险1：..."],
     "tool_assisted": ["token_savior"]
-  },
-  "next_step": "ui_ue_design"
+  "next_step": "audit"
+  }
 }
 ```
 
-#### Step 2.5: UI/UE 设计（按需）
+#### Step 2.4: 合规审计（模式 A 专属）
+
+> **目标**：在动手重构前，扫描 target_files 中违反现行规范的部分，列出「必须修复」「推荐修复」「仅标记」三类。
+
+**执行方式**（我直接执行，不创建子代理）：
+
+```bash
+# 1. 扫描硬编码路径
+grep -nP "['"]/api/v[0-9]/" routes.py
+grep -nP "['"]http://localhost" *.py
+
+# 2. 扫描死链接
+grep -n 'href="#[^ ]' templates/*.html
+
+# 3. 扫描无类型注解的函数
+for f in target_files/*.py; do
+  grep -nP "^def \w+\([^)]*\):" "$f" | grep -v ": int\|: str\|: bool\|: list\|: dict"
+done
+
+# 4. 扫描双返回路径
+for f in target_files/*.py; do
+  grep -c "return jsonify" "$f" | grep -v ":1$"
+done
+```
+
+**输出交付物** (`artifacts/<task_id>/audit_v1.json`):
+```json
+{
+  "step_id": "audit_v1",
+  "parent_step_id": "design_v1",
+  "status": "success",
+  "result": {
+    "must_fix": [
+      {"file": "routes.py:50", "issue": "硬编码API路径 '/api/v2/list'", "principle": "P3 url_for强制"},
+      {"file": "templates/portal.html:22", "issue": "href="#" 死链接", "principle": "P8 永不覆盖"}
+    ],
+    "recommend_fix": [
+      {"file": "engine.py:15", "issue": "函数 generate() 缺类型注解", "principle": "P5 骨架优先"}
+    ],
+    "mark_only": [
+      {"file": "state.py:30-80", "issue": "get_state() 变量命名不规范", "principle": "P3 命名规范"}
+    ]
+  },
+  "next_step": "skeleton"
+}
+```
+
+#### Step 2.5: 骨架搭建（强制 + 含老代码重构）
+
+**骨架产出**:
+- 输出 `artifacts/<task_id>/skeleton_v1/` 目录
+- Python: import + class/def签名 + route装饰器 + return结构
+  — 先按合规审计修复 mandatory 项（硬编码→url_for、href→真实路径）
+  — 再搭新骨架
+- HTML: extends + block + 变量引用名 + url_for
+- 类型覆盖矩阵：后端输出类型 ↔ 前端处理路径
+- 依赖关系图：完整方法调用/页面引用
+- 验证：compile() 语法检查 + 模板文件存在性 + 变量名一致性
+
+**输出交付物** (`artifacts/<task_id>/skeleton_v1.json`):
+```json
+{
+  "step_id": "skeleton_v1",
+  "parent_step_id": "design_v1",
+  "status": "success",
+  "result": {
+    "files_created": ["path/to/engine.py", "path/to/template.html"],
+    "syntax_check": "PASS",
+    "hardcoded_paths_found": 0,
+    "variable_mismatches_found": 0,
+    "return_path_consistency": "PASS",
+    "type_coverage_matrix": {"types": [...], "gaps": [...]}
+  },
+  "next_step": "ui_ue_design|implement"
+}
+```
+
+#### Step 2.6: UI/UE 设计（按需）
+
 **条件**: 仅当任务涉及交互页面功能时启用
 
 **输出交付物** (`artifacts/<task_id>/ui_ue_design_v1.json`):
 ```json
 {
   "step_id": "ui_ue_design_v1",
-  "parent_step_id": "design_v1",
+  "parent_step_id": "skeleton_v1",
   "status": "success",
   "result": {
     "interaction_flow": "交互流程与用户操作路径（含多状态分支）",
@@ -822,6 +1023,9 @@ context = f"""
 ⚠️ 约束:
 1. 写入 artifacts/<task_id>/implement_v1.json
 2. 交付物包含 files_modified 和 verification_steps
+3. 每次 patch() 后运行后置验证：
+   python3 ~/.hermes/scripts/post-patch-verify.py <修改的文件>
+4. 同一文件 ≥ 3 次 patch → 读全量后用 write_file 重写
 """
 ```
 
@@ -888,6 +1092,8 @@ context = f""""
 
 **条件**: >500 行 或 跨模块 或 API变更 或 数据库结构变更
 
+**治理模式**: 模式 A（先修后改）— 同 Tier 2，合规审计 + 骨架重构前置。
+
 **交付物模式**: 全流程交付物 DAG，每个子代理独立输出，通过 lineage.json 追踪完整血缘
 
 #### Step 0: 需求分析
@@ -915,8 +1121,11 @@ context = f""""
 #### Step 2: 架构设计
 - 同 Tier 2 Step 2，输出 `design_v1.json`
 
-#### Step 2.5: UI/UE 设计（按需）
-- 同 Tier 2 Step 2.5，输出 `ui_ue_design_v1.json`
+#### Step 2.5: 骨架搭建（强制）
+- 同 Tier 2 Step 2.5，输出 `skeleton_v1.json` + `/skeleton_v1/` 目录
+
+#### Step 2.6: UI/UE 设计（按需）
+- 同 Tier 2 Step 2.6，输出 `ui_ue_design_v1.json`
 
 #### Step 3: 代码实现
 - 同 Tier 2 Step 3，支持依赖图调度的并行任务交付物
@@ -957,6 +1166,7 @@ integrate_v1.json = {
 | 学习 B（实现） | — | DeepSeek R1 | DeepSeek R1 | DeepSeek R1 |
 | 学习 C（测试） | — | — | — | DeepSeek R1 |
 | 架构设计 | — | — | **DeepSeek R1** | **DeepSeek R1** |
+| **骨架搭建** | — | **我** | **我** | **我** |
 | **UI/UE 设计** | — | **我（按需）** | **DeepSeek R1（按需）** | **DeepSeek R1（按需）** |
 | 代码实现 | 我 | DeepSeek R1 | **DeepSeek R1** | **DeepSeek R1** |
 | 质量测试 | 我 | DeepSeek R1 | DeepSeek R1 | DeepSeek R1 |
@@ -1010,6 +1220,7 @@ integrate_v1.json = {
 | 需求分析 | 1,000 | 10 | `req_analysis_v1.json` |
 | 学习代理 (每个) | 1,500 | 10 | `learn_*_v1.json` |
 | 架构代理 | 3,000 | 15 | `design_v1.json` |
+| 骨架搭建 | 1,500 | 10 | `skeleton_v1/` + `skeleton_v1.json` |
 | UI/UE 设计代理 | 2,000 | 12 | `ui_ue_design_v1.json` |
 | 实现代理 | 不限（但子代理内部完成验证） | — | `implement_v1.json` |
 | 测试代理 | 2,000 | 20（含每条PASS/FAIL） | `test_v1.json` |
@@ -1565,6 +1776,73 @@ grep -n "return jsonify\|return {" routes.py | head -20
 
 **排查标志**：修改了 API 返回体后，前端读取 API 不报错（HTTP 200）但页面功能异常。
 
+## 新增陷阱 33：路由函数参数顺序与业务函数不匹配（静默瘫痪陷阱）
+
+**发现场景**（2026-05-13 C008 语法模块修复）：启动练习正常 → 提交答案返回 500。Flask 日志显示 `submit_answer()` 内部参数错乱。检查发现路由调用传入了 4 个位置参数，但函数只接受 3 个 —— 且因为超出了函数参数个数，Python 直接抛 `TypeError`。
+
+```python
+# ❌ 路由传了 4 个参数，函数只接受 3 个
+@grammar_bp.route("/student/grammar/submit", methods=["POST"])
+def submit_answer():
+    ...
+    result = pe.submit_answer(student_id, session_id, question_index, answer)
+    #                                 ^^ 多了一个 student_id！
+    # TypeError: submit_answer() takes 3 positional arguments but 4 were given
+
+# ✅ 正确
+    result = pe.submit_answer(session_id, question_index, answer)
+```
+
+**更隐蔽的变体**：函数同样接受 3 个参数，但顺序错了：
+```python
+def submit_answer(session_id, question_index, user_answer):
+    ...
+
+# ❌ 参数数量匹配但语义错位
+result = pe.submit_answer(student_id, session_id, question_index)
+# student_id → session_id (第一个参数位置)，完全语义颠倒
+
+# ✅ 正确
+result = pe.submit_answer(session_id, question_index, answer)
+```
+
+**根因**：路由函数内先 `_get_student_id()` 获取额外变量，顺手就把这个变量传进了业务函数。Python 按位置传参，一旦多传或少传了一个，API 整个瘫痪。
+
+**排查**：查看 500 错误的 Flask 日志，对比路由调用参数列表和业务函数签名。注意：修改 `submit_answer()` / `complete_practice()` 等核心 API 时，务必确认路由调用行的参数列表与函数签名严格一致。
+
+**预防**：参见 `references/flask-api-mismatch-patterns.md` 的「模式B」。
+
+## 新增陷阱 34：HTML 表单直接 POST 到 JSON-only API（请求方式不匹配陷阱）
+
+**发现场景**（2026-05-13 C008 语法模块修复）：练习页面 `submitBtn` 通过常规 HTML `<form>` 提交到后端 `submit_answer()` 路由。后端用 `request.get_json()` 解析请求体，但 form 提交的是 `application/x-www-form-urlencoded` —— 结果 `get_json()` 返回 `None`，所有参数丢失，API 返回「缺少必要参数」。
+
+```python
+# 后端
+data = request.get_json(silent=True) or {}  # form 提交时 → {}
+session_id = data.get("session_id")          # → None
+```
+
+```html
+<!-- 前端 -->
+<form method="POST" action="/submit">
+    <input name="session_id" value="...">
+    <button type="submit">提交</button>
+</form>
+```
+
+当 form 没有 JavaScript 拦截时，浏览器自动用 `application/x-www-form-urlencoded` 格式提交，后端 `get_json()` 无法解析。
+
+**现场诊断**：
+1. 前端点提交 → 浏览器直接跳转到 `/submit` 页面显示 `{"error":"缺少必要参数"}`（因为后端返回 JSON，不是重定向）
+2. 检查请求的 Content-Type → `application/x-www-form-urlencoded`（不是 `application/json`）
+3. 后端日志无 `submit_answer` 异常（因为 `get_json(silent=True)` 静默返回 None，抛出 HTTP 400，不是 500）
+
+**修复**：
+- 前端：用 `fetch()` + `Content-Type: application/json` 发送请求
+- 后端：同时接受 `request.is_json` + `request.form` 两种格式（向下兼容）
+
+详见 `references/flask-api-mismatch-patterns.md` 的「模式A」。
+
 ## 新增陷阱 22：CSS 插值错误——`.replace()` 与 CSS 花括号冲突
 
 **发现场景**：在 Flask 视图函数中使用 Python 字符串模板生成 HTML（如渲染门户页面），模板中包含 CSS 样式时使用 `.format()` 替代 `{EXTERNAL_URL}` 失败。
@@ -1652,7 +1930,102 @@ python3 -c "compile(open('path/to/file.py').read(), 'file.py', 'exec')"
 - 优先使用 `write_file` 做原子写入（文件写完即持久化），而非 `patch`（需多次调用）
 - 超时后先检查文件系统，再决定是否重跑
 
-## 新增陷阱 30：英文分类名直接拼接中文句子（Flask 模板国际化反模式）
+## 新增陷阱 31：类型/交互模式实现覆盖检查缺失（静默空渲染陷阱）
+
+**发现场景**（2026-05-12 C003 数学模块）：练习页面没有输入答案的地方。API 返回 `word_problem` 类型题目，但前端只处理了 `choice`/`fill`/`calc` 三种类型。
+
+**根因**：题目生成引擎输出多种类型（`choice`, `fill`, `calc`, `word_problem` 等），但前端做题页面只实现了部分类型的输入框/交互组件。未处理的类型被**静默跳过**——不报错、不显示错误信息、用户看到空白。
+
+```javascript
+// ❌ 错误：存在未处理的类型分支
+if (q.type === 'choice') { renderChoice(q); }
+else if (q.type === 'fill') { renderFill(q); }
+else if (q.type === 'calc') { renderCalc(q); }
+// word_problem 被静默忽略，不渲染任何内容
+
+// ✅ 正确：所有类型必须有处理路径，或显式报错
+switch (q.type) {
+    case 'choice': renderChoice(q); break;
+    case 'fill': renderFill(q); break;
+    case 'calc': renderCalc(q); break;
+    case 'word_problem': renderTextInput(q); break;  // 新增处理
+    default: console.error('未知题目类型:', q.type);  // 兜底捕获
+}
+```
+
+**排查标志**：
+- 用户说"页面上没有输入框/没有答案的地方"
+- API 返回的内容类型比前端处理的多
+- 前端代码中有 `if/else if` 链但缺少 `else`/`default` 兜底
+
+**预防清单**（每次涉及类型系统/交互模式枚举时执行）：
+
+**步骤 1：在 Step 0（需求分析）中，枚举所有类型/交互模式**
+
+```markdown
+类型清单（2026-05-12 C003 数学模块实战案例）：
+┌─────────────┬──────────┬──────────┐
+│ 类型         │ 后端输出 │ 前端处理 │
+├─────────────┼──────────┼──────────┤
+│ choice      │ ✅       │ ✅       │
+│ fill        │ ✅       │ ✅       │
+│ calc        │ ✅       │ ✅       │
+│ word_problem│ ✅       │ ❌ 缺失  │  ← 本次发现
+└─────────────┴──────────┴──────────┘
+```
+
+**步骤 2：在 Step 2（架构设计）中，输出「类型实现覆盖矩阵」**
+
+作为架构交付物的一部分，创建一个 **类型 vs 实现** 矩阵，逐行验证：
+
+```json
+{
+  "type_coverage_matrix": {
+    "title": "类型实现覆盖矩阵",
+    "types": [
+      {"name": "choice",     "engine_outputs": true, "frontend_handles": true,  "edge_to_frontend": "renderChoice()"},
+      {"name": "fill",       "engine_outputs": true, "frontend_handles": true,  "edge_to_frontend": "renderFill()"},
+      {"name": "calc",       "engine_outputs": true, "frontend_handles": true,  "edge_to_frontend": "renderCalc()"},
+      {"name": "word_problem", "engine_outputs": true, "frontend_handles": false, "action": "需要增加 text input 渲染路径"}
+    ],
+    "gaps": [
+      {"type": "word_problem", "missing_handling": "前端无 text input 渲染", "fix": "增加 text input 框 + 确认按钮"}
+    ]
+  }
+}
+```
+
+**步骤 3：在 Step 3（实现）中，按矩阵逐行实现每一行**
+
+每一个缺失的 `frontend_handles: false` 都必须成为实现任务的一项。
+
+**步骤 4：在 Step 4（测试）中，生成每个类型的测试题目**
+
+```python
+# 测试每个类型都有可用的渲染路径
+for q_type in ['choice', 'fill', 'calc', 'word_problem']:
+    resp = c.get(f'/api/practice/next?type={q_type}')
+    html = resp.data.decode()
+    if q_type == 'word_problem':
+        assert 'input' in html, f"word_problem 类型缺少输入框"
+```
+
+**相关的 Pre-implementation Audit**：
+
+在每个涉及前端交互的任务开始编码前，运行以下预审计：
+
+```bash
+# 审计 A：枚举后端输出的所有类型
+grep -oP "'type':\\s*'[^']+'" engine/*.py | sort -u | sed "s/'//g"
+
+# 审计 B：枚举前端处理的所有类型
+grep -oP "q\\.type\\s*===\\s*'[^']+'" templates/*.html | sort -u | sed "s/q\\.type\\s*===\\s*'//g; s/'$//"
+
+# 审计 C：对比差异
+# 后端有但前端没有的 = 缺失处理
+```
+
+## 新增陷阱 32：英文分类名直接拼接中文句子（Flask 模板国际化反模式）
 
 **发现场景（C008 2026-05-06）**：用户报告"请输入word的正确拼写"，以为是单词 `word` 的问题，实际是 `data.category` 字段值为 `"word"`（英文），被直接拼接进中文句子 `'请输入' + data.category + '的正确拼写'`，产生了"请输入word的正确拼写"。
 
@@ -1773,7 +2146,7 @@ grep -oP "render_template\('[^']+\.html" routes.py | sed "s/render_template('//"
 **加速路径**：
 ```
 正常流程：C007→C005 Step 0→Step 1(学习)→Step 2(设计)→Step 2.5(UI)→Step 3(实现)→...
-加速路径：C007→C005 Step 0→直接Step 2.5(UI/UE设计)→Step 3(实现)→...
+加速路径：C007→C005 Step 0→直接Step 2.5(骨架)→Step 2.6(UI/UE设计)→Step 3(实现)→...
                     ↑
               跳过 Step 1 和 Step 2
               因为架构已在 C007 交付物中定义
@@ -1787,7 +2160,8 @@ grep -oP "render_template\('[^']+\.html" routes.py | sed "s/render_template('//"
 **执行方式**：
 - Step 0（需求分析）正常执行，记录 task_id
 - Step 0 交付物中 `next_step` 设置为 `"ui_ue_design"` 而非 `"learn"`
-- Step 2.5 直接引用 C007 交付物路径
+- Step 2.5 根据 C007 交付物搭建骨架
+- Step 2.6 直接引用 C007 交付物路径
 - 在 Step 3 context 中注明："架构设计见 C007 顾问团报告 [链接]"
 
 ### Template-first confirmation mode (用户偏好)
@@ -1808,15 +2182,15 @@ Step 3: 编码实现 → 测试 → 交付
 适用场景：教育系统模块改造、新增交互页面、新增题型模板。对其他有明显 UI/UE 设计的任务同样适用。
 
 ### 与跟 C007 无关的独立加速：绿地项目（Greenfield）：
-
-当任务为**创建全新的独立脚本/管道**（不修改任何现有代码）时，即使没有 C007 前置问询，也有权跳过 Step 1 和 Step 2：
+纯CSS/视觉改造（不改逻辑、不改API、不改数据结构）时，
+即使规模匹配 Tier 2/3，也有权跳过 Step 1（代码学习）和 Step 2（架构设计）：
 
 ```
-正常流程：Step 0 → Step 1(学习) → Step 2(设计) → Step 3(实现) → ...
-加速路径：Step 0 → 直接 Step 3(实现) → Step 4(测试) → Step 5(交付)
+正常流程：Step 0 → Step 1(学习) → Step 2(设计) → Step 2.5(骨架) → Step 2.6(UI) → Step 3(实现) → ...
+加速路径：Step 0 → Step 2.5(骨架) → Step 2.6(UI/UE设计) → Step 3(实现) → Step 4(测试) → Step 5(交付)
                     ↑
               跳过 Step 1 和 Step 2
-              （因为没有现存代码需要学习，没有已有架构需要分析）
+              （因为无逻辑代码需要学习，无架构需要设计）```
 ```
 
 **判定条件**（全部满足才可加速）：
@@ -1855,7 +2229,9 @@ _SESSIONS[session_id] = session  # 同步 L1 缓存
 **排查标志**：前端提交后进度不动，但后端日志显示 `current_index` 在文件中有更新。重启服务后恢复正常（因为 L1 缓存重建自 L2）。
 
 **预防**：每次 `save_session()` 后立即更新 `_SESSIONS`。参见 `references/flask-in-memory-cache.md`。
-- `references/embedded-data-quality-audit.md` — 嵌入式 JS 数据质量审计方法论（适用于 HTML 模板内嵌数据数组的 SPA 应用）
+- `references/post-patch-safety.md` — 工具安全规范（patch/write_file 安全规则、后置验证脚本）
+- `references/interactive-prototype-methodology.md` — 交互式 HTML 原型方法论
+- `references/embedded-data-quality-audit.md` — 嵌入式 JS 数据质量审计方法论
 - `references/handwriting-recognition-architecture.md` — 手写识别架构参考（TrOCR + qwen3-vl 双层混合方案）
 - `references/edu-hub-new-module-checklist.md` — 在 edu-hub 单体 Flask 应用中新增子系统模块的检查清单（Blueprint注册、导航入口注入、常见陷阱）
 - `references/edu-hub-extension-audit.md` — 在 edu-hub 已有模块上扩展功能前的预审计清单（导航链接完整性、模板变量一致性、模板文件存在性、父级页面入口验证）
@@ -2155,7 +2531,247 @@ curl -s http://localhost:<PORT>/health | grep -q '"status":"ok"'
 
 ---
 
-## 十、关键约定（v3.0 新增 + v2.2 继承）
+## 十、骨架先行方法论（v4.0 新增 — 习惯驱动，非检查驱动）
+
+> **核心理念**：大部分 Bug 的根因不在编码层面，而在设计层面——目录结构、命名、接口签名、模板变量名。骨架正确了，填空时就出不了大错。
+>
+> **转变**：Step 2 → Step 2.5(骨架搭建) → Step 3(逻辑填充) 变成**默认路径**。
+>
+> **关键区分**：不是事后的「检查点」，而是事前的「习惯」。
+
+### 10.1 事后检查 vs 事前习惯
+
+```
+检查点思维：
+  写完代码 → 审查 → 发现 Bug → 修复
+  代价已经产生，修改成本高
+
+习惯思维：
+  开始写之前 → 骨架已经正确 → 填空时不会跑偏
+  零代价（根本不会产生 Bug）
+```
+
+骨架层面发现的错误是 0 成本修改（还没写逻辑），代码实现阶段发现骨架问题意味着要重构已写完的代码。
+
+### 10.2 Step 2.5：骨架搭建规范
+
+**每个 Tier 1+ 的任务，Step 2(架构设计) 之后必须经过 Step 2.5(骨架搭建) 才能进入 Step 3(编码实现)。**
+
+**模板来源**：使用 skill 内置骨架模板快速生成，见 `templates/` 目录：
+- `templates/blueprint-skeleton.py` — Flask Blueprint + Route 骨架
+- `templates/page-skeleton.html` — HTML 页面骨架（含 loading/empty/error 状态）
+- `templates/api-skeleton.js` — JS API 调用骨架（完整 try/catch）
+
+**产出物：可编译但无逻辑的代码框架**
+
+```
+artifacts/<task_id>/skeleton_v1/
+  ├── python_skeleton/     # Python 骨架（import + class + def签名 + route装饰器）
+  ├── template_skeleton/   # HTML 骨架（extends + block + 变量引用名）
+  ├── static_skeleton/     # JS/CSS 骨架（函数签名 + API 调用路径）
+  └── dependency_graph.md  # 方法调用/页面引用关系图
+```
+
+#### Python 骨架规范
+
+```python
+# ✅ 正确：所有结构就位，方法体留空
+from flask import Blueprint, render_template, request, jsonify
+from .models import Student, PracticeSession
+
+class PracticeEngine:
+    """练习引擎"""
+    def generate_questions(self, student_id: str, count: int) -> list:
+        raise NotImplementedError
+
+    def evaluate_answer(self, question_id: str, answer: str) -> dict:
+        raise NotImplementedError
+
+bp = Blueprint("practice", __name__, url_prefix="/api/practice")
+
+@bp.route("/generate", methods=["POST"])
+def api_generate():
+    data = request.get_json()
+    # TODO: call PracticeEngine.generate_questions()
+    return jsonify({"questions": []})  # return 结构定型
+
+@bp.route("/submit", methods=["POST"])
+def api_submit():
+    data = request.get_json()
+    # TODO: call PracticeEngine.evaluate_answer()
+    return jsonify({"result": {}, "next_question": {}})
+```
+
+**骨架验证**：
+```
+□ 所有 import 语句已就位（可执行 import）
+□ 所有 class/def 已定义（含类型注解）
+□ 所有 route 装饰器 + url_for 已就位
+□ 所有 return 结构已定型（多路径结构一致）
+□ compile() 语法检查通过
+□ 无 hardcoded 路径
+□ 无 href="#" 占位
+□ 目录名不与 Python 内置模块冲突
+```
+
+#### HTML 骨架规范
+
+```html
+{# ✅ 正确：extends + block + 变量引用名 #}
+{% extends "base.html" %}
+{% block title %}练习页面{% endblock %}
+{% block content %}
+<div class="practice-container">
+    <h1>{{ page_title }}</h1>
+    {% for question in questions %}
+    <div class="question-card">
+        <p>{{ question.text }}</p>
+        <input type="text" name="answer" class="answer-input">
+    </div>
+    {% endfor %}
+    <nav>
+        <a href="{{ url_for('practice.index') }}">返回</a>
+    </nav>
+</div>
+{% endblock %}
+```
+
+**骨架验证**：
+```
+□ 所有 extends + block 结构已就位
+□ 模板变量名与 route render_template 参数名一致
+□ 所有 url_for 已使用（无硬编码路径）
+□ 所有导航链接确认可达（非死链）
+□ 模板文件物理存在（grep route → 确认文件存在）
+```
+
+#### 方法调用/页面引用关系图
+
+```
+┌─ api_generate() ──────────────────────────┐
+│  ├── PracticeEngine.generate_questions()   │
+│  └── jsonify()                             │
+├─ api_submit() ─────────────────────────────┤
+│  ├── PracticeEngine.evaluate_answer()      │
+│  └── AnswerChecker.check()                 │
+└─ portal() → render_template("portal.html") ┘
+```
+
+### 10.3 各 Tier 的骨架要求
+
+| Tier | Step 2.5 要求 |
+|:----|:-------------|
+| Tier 0 | ❌ 跳过（<20 行无需骨架） |
+| Tier 1 | ✅ 轻量骨架：单文件的 import + def 签名 |
+| Tier 2 | ✅ 完整骨架：多文件的目录 + import + class + route + 模板 |
+| Tier 3 | ✅ 完整骨架 + 关系图 + 类型覆盖矩阵 |
+
+### 10.4 骨架与 Step 3 编码的关系
+
+```
+骨架搭建：
+  .py 文件 ← import + class + def签名 + route装饰器 + return结构 → 填空更不会走偏
+  .html 文件 ← extends + block + 变量引用 → 填空时变量名正确
+  .js 文件 ← 函数签名 + API 调用路径 → 填空时数据流正确
+```
+
+Python 的 `compile()`、Jinja2 的模板语法、浏览器的 JS 解析器会自动约束编码层面的错误。真正危险的错误在设计层面——方法调对了但语法正确的、模板变量名不匹配但 Jinja2 静默忽略的、页面链接了但路径不对的。骨架阶段就是解决这些问题的。
+
+### 10.5 工具默认行为（习惯化为内置约束）
+
+| 工具 | 默认行为 |
+|:----|:---------|
+| patch() | **.py 文件拒绝 replace_all=True**（除非文件中确实只有 1 处匹配） |
+| patch() | **.md 文件含多副本相似内容（如 Tier 1/2/3 定义）也禁止 replace_all=True** — 会交叉命中 JSON 结构 |
+| patch() | 替换后**自动 compile() 语法检查** |
+| patch() | 同一文件 ≥ 3 次 → **提示切换 write_file** |
+| write_file() | 目标文件已存在 → **提示「覆盖/新建版本」** |
+| 骨架创建 | 自动生成 import + 类型注解 + url_for |
+| 骨架创建 | 自动检查**目录名与 Python 内置模块冲突** |
+
+---
+
+## 十一、开发原则（12条，习惯化）
+
+每条原则不是贴在墙上的标语，而是**骨架/流程/工具的默认行为**。
+
+### 11.1 架构原则（嵌入 Step 2 + 2.5）
+
+```
+原则1：迁移必幂等
+  案例：B7 状态迁移重跑即炸
+  习惯化：migrate() 默认含 IF NOT EXISTS / CREATE IF NOT EXISTS
+          Step 2 交付物必须包含幂等性验证方案
+
+原则2：改旧必兼容
+  案例：B3 硬编码路径失效
+  习惯化：骨架强制 url_for()，无 hardcoded 路径
+          旧路由保留重定向（301），不直接删除
+
+原则3：命名不撞车
+  案例：B6 连字符文件名、B2 模板目录同名
+  习惯化：骨架创建文件时自动检查：
+          - 是否与 Python 内置模块同名
+          - 是否与其他 Blueprint 模板目录同名
+
+原则4：数据字段单一语义
+  案例：陷阱23 cn 被覆盖为显示文本
+  习惯化：骨架阶段定义每个 JSON 字段的单一职责
+          不允许同一字段在不同路径写入不同类型
+```
+
+### 11.2 编码原则（嵌入 Step 2.5 + 工具默认行为）
+
+```
+原则5：骨架优先，填空在后
+  案例：陷阱26 模板变量名不匹配、陷阱31 类型覆盖缺失
+  习惯化：Step 2.5 是必经步骤
+          route 骨架 + 模板骨架同步产出
+          类型覆盖矩阵为骨架交付物必有字段
+
+原则6：写完必验证
+  案例：B1 patch() 静默失败
+  习惯化：工具默认执行 compile() 语法检查
+          replace_all=True 在 .py 上被直接拒绝
+
+原则7：先范围后实现
+  案例：陷阱29 双返回路径只改其一
+  习惯化：修改前 grep 所有 return jsonify 路径
+          骨架阶段列出所有返回路径并保证结构一致
+```
+
+### 11.3 数据原则（嵌入 Step 3 + 4）
+
+```
+原则8：永不覆盖（版本链）
+  案例：B11 飞书文档覆盖原文件
+  习惯化：工具默认阻止对已存在 doc_token 的写入
+          必须显式指定新建版本（v2/v3）
+
+原则9：全链追溯
+  案例：陷阱6 修了 API 没验持久化
+  习惯化：测试骨架默认三层验证（持久化→API→前端）
+```
+
+### 11.4 流程原则（嵌入 Step 0 + 5）
+
+```
+原则10：环境清单先行
+  案例：B8 WSL 不自启、B9 Ollama GPU 不兼容
+  习惯化：Step 0 完成后自动检查目标平台特殊限制
+
+原则11：配置集中管理
+  案例：B10 OLLAMA_HOST 散落在 4 个脚本中
+  习惯化：新建脚本时默认从 config.yaml / .env 读取配置
+
+原则12：类型覆盖矩阵
+  案例：陷阱31 word_problem 类型前端没处理
+  习惯化：骨架交付物必须包含「后端类型↔前端处理」映射表
+```
+
+---
+
+## 十二、关键约定（v4.0 新增 + v3.0 继承）
 
 1. **交付物优先** — 所有步骤先定义输入/输出 Schema，再执行（避免自由文本描述）
 2. **路径引用** — 步骤间仅传递交付物文件路径，不传递全量内容
@@ -2169,6 +2785,106 @@ curl -s http://localhost:<PORT>/health | grep -q '"status":"ok"'
 10. **只新增不破坏** — 集成时遵守"只复制不删除"原则（继承 v2）
 11. **学习先行** — 修改已有代码必须先学习，输出"不可触碰区域"（继承 v2）
 12. **子代理不可用 clarify** — 所有信息在 context 中给足（继承 v2）
+
+---
+
+## 十三、约束学习闭环（v4.2 新增）
+
+> 每次测试或用户反馈暴露的设计层面问题，都应评估是否补充为流程约束。
+> 但约束存在「维护成本 + 执行成本」—— 不加控会导致流程臃肿、效率下降。
+
+### 13.1 约束分级：按成本分为 4 档
+
+```text
+                        执行成本（token/时间）
+                            低 ←────────→ 高
+  预防价值     ┌─────────────────────────────────┐
+    高        │ 🔧 内置       │ 🛡️ 审计门禁    │
+              │ (0 token)     │ (~300 tokens)   │
+              │ 工具级强制     │ 独立脚本/步骤   │
+              ├────────────────┼─────────────────┤
+    低        │ 📋 清单项     │ 📚 参考文档     │
+              │ (~50 tokens)  │ (按需加载)      │
+              │ Step内检查项   │ 仅出问题时查阅  │
+              └────────────────┴─────────────────┘
+```
+
+| 等级 | 标识 | 执行成本 | 维护成本 | 何时添加 | 示例 |
+|:----|:----|:--------|:--------|:---------|:-----|
+| **🔧 内置** | 工具级 | 0 token | 高（改工具代码） | 频繁触发 + 自动化可行 | `patch()` 拒绝 replace_all |
+| **🛡️ 门禁** | Step/脚本 | ~300 tokens | 中（维护脚本） | 偶发但影响大 | Step 2.4 合规审计 |
+| **📋 清单** | Step 内检查项 | ~50 tokens | 低（加一行） | 规则简单 + 不易忘 | 骨架阶段检查 url_for |
+| **📚 参考** | 引用文档 | 按需 | 低（写文档） | 场景特化 + 不需要每次都检 | JSON字段语义冲突排查 |
+
+### 13.2 约束添加决策树
+
+每次测试暴露或用户反馈一个设计层面的问题后：
+
+```text
+问题：测试发现的某个设计缺陷
+  ↓
+询问：这个缺陷能否被一条明确的规则预防？
+  ├─ 否 → 不用加约束（技术/业务能力问题，非流程问题）
+  └─ 是 → 继续
+          ↓
+         这条规则能否由工具自动执行？
+         ├─ 是 → 🔧 内置（改工具代码）
+         └─ 否 → 继续
+                 ↓
+                这条规则被违反的频率多高？
+                ├─ 每次任务都有此风险 → 🛡️ 门禁（独立步骤/脚本）
+                └─ 偶尔遇到 → 继续
+                            ↓
+                           这条规则是否容易被忘记？
+                           ├─ 是 → 📋 清单（Step内检查项）
+                           └─ 否 → 📚 参考（放文档即可）
+```
+
+### 13.3 约束注册表
+
+所有约束记录在 `references/constraint-registry.md`，格式：
+
+```yaml
+- id: C001
+  name: 禁止 replace_all 在 .py
+  weight: 🔧 内置
+  source: B1 patch静默失败
+  added: 2026-05-14
+  trigger: patch() on .py → 自动检查
+  hits: 0  # 触发次数，用于评估是否降级/升级
+
+- id: C008
+  name: 模板变量名交叉比对
+  weight: 📋 清单
+  source: 陷阱26
+  added: 2026-05-14
+  stage: Step 2.5 骨架验证
+  hits: 3
+```
+
+约束注册表中的 `hits`（命中次数）用于定期评估：
+- **hits=0** 连续 3 个月 → 降级（📋→📚 或 删除）
+- **hits>5/月** → 升级（📋→🛡️ 或 🔧）
+- **所有约束** 首次添加后 1 个月自动评估，之后每季度评估
+
+### 13.4 添加时机
+
+| 触发场景 | 添加时机 |
+|:---------|:---------|
+| **Step 4 测试**发现的设计缺陷 | 当前 C005 任务交付物中记录，C005 任务结束后立即更新 Skill |
+| **用户测试反馈**的设计问题 | 收到反馈 → 评估 → 更新 Skill（当前会话内完成） |
+| **C007 审核**中发现的设计漏洞 | C007 交付物中记录，转入 C005 时自动带约束 |
+
+### 13.5 约束总量控制
+
+| 指标 | 上限 | 超限处理 |
+|:----|:----|:---------|
+| 🔧 内置 | 无限制（0 成本） | — |
+| 🛡️ 门禁 | ≤ 5 条 | 超限时合并或降级某条 |
+| 📋 清单 | ≤ 20 条 | 超限时移除非高频项至 📚 |
+| 📚 参考 | 无限制（按需加载） | — |
+
+**每月 1 日自动瘦身**：检查器读取 `constraint-registry.md`，对 `hits=0` 的约束标记「待降级」，对超限类别提示「请合并」。
 13. **每轮 delegate_task 最多 3 个并行任务**（继承 v2）
 14. **涉及交互页面必须先完成 UI/UE 设计**（继承 v2）
 15. **子代理自验证不能替代独立测试** — 子代理返回后我必须编写并运行覆盖全部 4 个象限的独立测试套件（UT/IT-API/IT-HTML/BT），子代理的"启动检查"或"简单运行验证"不视为正式测试。Tier 1 至少覆盖 A+B，Tier 2/3 全部覆盖。测试文件独立新建，不被子代理验证代码替代。

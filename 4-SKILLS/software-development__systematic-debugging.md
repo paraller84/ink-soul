@@ -223,7 +223,82 @@ def api_v4_practice_submit():
 
 ### 7. Data Source Divergence — Statistics Don't Match Reality
 
-### 8. JS Inline Script Syntax Error Bisection
+### 8. Frontend-Backend API Data Contract Drift
+
+**WHEN the user reports that ALL answers are marked wrong, every submission fails silently, or the system appears to 'judge' but never correctly:**  
+
+The root cause is often not the grading logic itself, but a mismatch in the **data contract** between frontend and backend — both sides work correctly when called individually, but they disagree on what the API input/output looks like.
+
+**Diagnostic checklist:**
+
+1. **Capture the exact request body the frontend sends**
+   ```javascript
+   // Add to submitAnswer() before the fetch:
+   console.log('Sending:', JSON.stringify({question_id: q.id, answer: userAnswer}));
+   ```
+   Or use browser DevTools Network tab to inspect the request payload.
+
+2. **Compare against what the backend expects**
+   ```python
+   # In the Flask route handler:
+   data = request.get_json(force=True, silent=True) or {}
+   print(f"RECEIVED: {data.keys()}")  # Compare keys
+   print(f"EXPECTING: question_id or answers")
+   ```
+
+3. **Check the response path too**
+   ```javascript
+   // Frontend reads:
+   result.correct       // exists?
+   result.correct_answer // exists? or is it result.expected_answer?
+   result.solution      // exists?
+   ```
+   ```python
+   # Backend returns:
+   return jsonify({
+       "correct": ...,
+       "expected_answer": ...,  # Frontend might read result.correct_answer!
+   })
+   ```
+
+4. **Common drift patterns**
+
+   | Pattern | Frontend sends | Backend expects | Symptom |
+   |---------|---------------|----------------|---------|
+   | Wrap drift | `{question_id, answer}` | `{answers: [{id, answer}]}` | Backend gets empty `answers[]` → 400 → `.correct` is undefined → all wrong |
+   | Key rename | `result.correct_answer` | returns `expected_answer` | Frontend shows empty/undefined response |
+   | Nesting diff | `{session_id, index, answer}` | `{session_id, data: {answer}}` | Backend reads wrong path |
+   | Type coercion | sends `answer: "10"` | expects `answer: 10` (int) | `"10" == 10` might fail depending on comparison |
+
+5. **Root cause pattern — Bilateral correctness with mismatched contract**
+
+   This is special because **both sides are individually correct** — the frontend correctly constructs its request, the backend correctly processes what it expects. The bug is only in the **agreement between them**, not in either implementation.
+
+   **Unlike typical bugs where one side is wrong**, you can't find it by reading either side alone. You must read BOTH sides simultaneously.
+
+6. **Systematic fix — add a compatibility layer**
+
+   ```python
+   # In the backend, accept both formats:
+   answers = data.get("answers", [])
+   if not answers:
+       qid = data.get("question_id", "")
+       user_answer = data.get("answer", "")
+       if qid and user_answer is not None:
+           answers = [{"id": qid, "answer": user_answer}]
+   ```
+
+   This future-proofs the API without requiring frontend changes.
+
+7. **Prevention — contract-first development**
+
+   For any new API endpoint shared between frontend and backend:
+   - [ ] **Write the data contract first** — a comment or docstring at both ends
+   - [ ] **Check both ends simultaneously** — don't test frontend/backend separately
+   - [ ] **Add a single-request test** — use curl to send the EXACT format the frontend sends
+   - [ ] **Verify field names match** — especially `correct_answer` vs `expected_answer`, `id` vs `question_id`
+
+### 9. JS Inline Script Syntax Error Bisection
 
 **WHEN a Single-Page App (SPA) embedded in an HTML `<script>` tag renders as a blank skeleton — no JavaScript executes, dynamic elements (mode cards, category tags, quiz cards) don't appear, but the static HTML renders fine:**
 

@@ -4,7 +4,7 @@ description: >-
   C007 顾问团系统使用规范。顾问团的核心价值在于结构化对话框架（而非代码），
   通过4阶段苏格拉底式询问与用户对话，产出方案文档后移交实施团队。
   严禁跳过讨论直接进入架构设计或系统搭建。
-version: 3.4.0
+version: 3.5.0
 author: Hermes Agent
 metadata:
   hermes:
@@ -1004,3 +1004,4 @@ if overlap:
 | `references/external-api-reconnaissance-getnotes-flomo.md` | Pre-Step 实战案例：Get笔记 vs Flomo API能力侦察，含能力矩阵+集成层次评估 |
 | `references/edu-hub-architecture-overview.md` | Edu-Hub 架构总览：所有模块同属一个 Flask 应用，术语标准化对照表 |
 | `references/c011-v3-upgrade-planning-case.md` | C011 语文模块 v3 升级实战案例：两分支合并、术语标准化、架构比较分析 |
+| `references/education-exercise-bug-analysis.md` | 教育练习模块 Bug 三层追踪分析法：模板定义→路由/API→前端渲染。含5类常见Bug的检查路径（题型标签缺失、任务说明缺失、前后端协议不匹配、题目重复、计数不匹配）|

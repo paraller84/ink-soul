@@ -117,18 +117,18 @@ cat > /tmp/cuda_test.cu << 'EOF'
 int main() {
     int deviceCount = 0;
     cudaError_t err = cudaGetDeviceCount(&deviceCount);
-    printf("CUDA device count: %d (err: %s)\\n", deviceCount, cudaGetErrorString(err));
+    printf("CUDA device count: %d (err: %s)\n", deviceCount, cudaGetErrorString(err));
     if (deviceCount > 0) {
         cudaDeviceProp prop;
         cudaGetDeviceProperties(&prop, 0);
-        printf("Device: %s\\n", prop.name);
-        printf("Memory: %.1f GB\\n", prop.totalGlobalMem / 1024.0 / 1024.0 / 1024.0);
+        printf("Device: %s\n", prop.name);
+        printf("Memory: %.1f GB\n", prop.totalGlobalMem / 1024.0 / 1024.0 / 1024.0);
         // 测试内存分配
         float *d_data;
         cudaMalloc(&d_data, 1024 * sizeof(float));
         cudaMemset(d_data, 0, 1024 * sizeof(float));
         cudaFree(d_data);
-        printf("CUDA compute: OK (malloc + memset + free passed)\\n");
+        printf("CUDA compute: OK (malloc + memset + free passed)\n");
     }
     return 0;
 }
@@ -146,6 +146,92 @@ nvcc -o /tmp/cuda_test /tmp/cuda_test.cu && /tmp/cuda_test
 - 如果 `/dev/nvidia*` 在重启后仍不出现：可能是 Windows 驱动版本过旧（< 525.60），或是 WSL 内核版本过旧
 - 重启 WSL 会终止所有 WSL 进程（包括当前会话）— 先通知用户保存工作
 
+## 诊断 Ollama GPU 加速（Windows 端）
+
+当 Ollama 推理速度异常慢（< 15 tok/s 对 8B 模型），或视觉模型无法处理图片时，问题通常是 **Ollama 未检测到 GPU**，全部推理在 CPU 上运行。
+
+> **详细诊断参考**：`references/ollama-gpu-diagnostics.md`
+>
+> 包含完整日志片段、CUDA 13.2 兼容性分析、网络受限环境的升级策略。
+
+### 诊断流程
+
+```bash
+# 1. 检查 nvidia-smi 是否有 Ollama 进程占用显存
+nvidia-smi
+# 正常：Ollama runner 进程应占用 4-7GB VRAM
+# 异常：仅显示 Xwayland 等非 Ollama 进程
+
+# 2. 测试模型推理速度
+curl -s http://localhost:11434/api/generate \
+  -d '{"model": "qwen3.5:9b", "prompt": "test", "stream": false}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'{d.get(\"eval_count\",0)/d.get(\"eval_duration\",1)*1e9:.1f} tok/s')"
+# 正常（GPU）：> 40 tok/s
+# 警告（CPU）：< 15 tok/s
+
+# 3. 查看 Ollama 服务日志确认 GPU 检测
+grep -E "inference compute|offloaded.*layer" /mnt/c/Users/%USERNAME%/AppData/Local/ollama/server.log
+# 正常输出：
+#   inference compute: id=cuda ... 
+#   offloaded 36/37 layers to GPU
+# CPU 模式（问题信号）：
+#   inference compute: id=cpu  ← 只检测到 CPU！
+#   offloaded 0/37 layers to GPU ← 零层卸载！
+```
+
+### 根因分析
+
+| 日志信号 | 含义 | 解法 |
+|----------|------|------|
+| `id=cpu library=cpu` | GPU 未检测到 | 升级 Ollama 或检查驱动兼容性 |
+| `offloaded 0/37 layers to GPU` | GPU 检测到但未使用 | 检查 `CUDA_VISIBLE_DEVICES` 环境变量 |
+| `user overrode visible devices` | 用户手动限制了 GPU | 检查 `CUDA_VISIBLE_DEVICES` 设置 |
+| `OLLAMA_NEW_ENGINE:false` | 使用旧版引擎 | 尝试设置 `OLLAMA_NEW_ENGINE=true` |
+
+### 已知兼容性问题
+
+**Ollama 0.22.x + CUDA 13.2 驱动（NVIDIA 595.97）不兼容**：
+- 症状：所有模型在 CPU 上运行，VRAM 仅 1.5GB，8B Q4_K_M 推理仅 9.9 tok/s
+- 根因：Ollama 内置 CUDA 运行时较旧，无法调用新版 CUDA 13.2 API
+- 修复：升级 Ollama 到最新版（详见 `references/ollama-gpu-diagnostics.md`）
+
+### 升级 Ollama
+
+详见 `references/ollama-gpu-diagnostics.md` → 三种方法（浏览器/PowerShell/批处理）+ 网络受限策略
+
+**已验证成功的升级路径**（RTX 4070, CUDA 13.2, NVIDIA 595.97）：
+```
+Ollama 0.22.1 → 0.23.3 (升级后验证)
+├── 推理速度: 9.9 tok/s (CPU) → 21.3 tok/s (GPU) ↑2.15x
+├── GPU检测: "offloaded 0/37 layers to GPU" → GPU正常参与
+├── 视觉模型: qwen3-vl:8b CPU超时35s → qwen3.5-256k可用(21.3tok/s)
+└── nvidia-smi: 显存使用从1.5GB升至正常范围
+```
+
+### 升级后验证
+
+```bash
+# 1. 确认推理速度恢复正常
+curl -s http://localhost:11434/api/generate \
+  -d '{"model": "qwen3:8b", "prompt": "test", "stream": false}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'{d.get(\"eval_count\",0)/d.get(\"eval_duration\",1)*1e9:.1f} tok/s')"
+
+# 2. 确认日志显示 GPU 加速
+grep "inference compute" /mnt/c/Users/%USERNAME%/AppData/Local/ollama/server.log | tail -3
+
+# 3. 测试视觉模型处理图片
+python3 -c "
+import base64, json, urllib.request
+with open('test_image.jpg', 'rb') as f:
+    b64 = base64.b64encode(f.read()).decode()
+payload = json.dumps({'model': 'qwen3-vl:8b', 'prompt': '描述图片', 'images': [b64], 'stream': False}).encode()
+req = urllib.request.Request('http://localhost:11434/api/generate', data=payload, headers={'Content-Type': 'application/json'})
+resp = urllib.request.urlopen(req, timeout=120)
+d = json.loads(resp.read())
+print(d.get('response', 'N/A'))
+"
+```
+
 ## 常见故障
 
 | 现象 | 原因 | 解法 |
@@ -155,3 +241,5 @@ nvcc -o /tmp/cuda_test /tmp/cuda_test.cu && /tmp/cuda_test
 | 16GB 内存出不来 | `.wslconfig` 语法错误 | 用 `wsl --shutdown` 重启检查 |
 | CUDA 编译报错 | CUDA Toolkit 版本与 nvidia-utils 不匹配 | 统一用 12.x 系列 |
 | `/dev/nvidia*` 重启后仍缺失 | 驱动版本过旧 | 更新 Windows 端驱动到 525.60+ |
+| Ollama 推理 < 15 tok/s | Ollama 未检测到 GPU（CPU 模式） | 见上文「诊断 Ollama GPU 加速」 |
+| 视觉模型处理图片无限超时 | GPU 未加速 + 图片编码耗 CPU | 先修复 Ollama GPU 检测 |

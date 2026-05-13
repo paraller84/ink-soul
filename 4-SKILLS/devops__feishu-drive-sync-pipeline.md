@@ -386,6 +386,41 @@ Key folder tokens for delivery:
 - 我的系统: `LQx1fl0v8lB1XFdAI29czWeznVh`
 - Hermes生成文件: `Otppfr9EelPIawdezL2csUXCnoh`
 
+## Dependencies: Installing `lark-oapi`
+
+The `feishu-wiki-sync.py` script depends on `lark-oapi`. On Debian/Ubuntu WSL systems with externally managed Python interpreters:
+
+### Installation (Debian/Ubuntu WSL)
+
+```bash
+# ❌ Will fail — system Python is externally managed:
+# pip3 install lark-oapi              # error: externally-managed-environment
+
+# ❌ uv pip install also fails for the same reason:
+# uv pip install lark-oapi --system   # error: externally managed
+
+# ✅ Break-system-packages flag:
+pip3 install lark-oapi --break-system-packages --timeout 30
+```
+
+The `--break-system-packages` flag is required on Debian 12+ / Ubuntu 24.04+.
+
+### Dependencies Installed
+
+```
+lark-oapi==1.6.4
+pycryptodome==3.23.0
+requests_toolbelt==1.0.0
+websockets==15.0.1
+```
+
+### Network Issues
+
+`pycryptodome` is a large binary wheel (~50MB). If pypi.org downloads are slow or timeout:
+- Use `--timeout 30` to allow enough time
+- Retry if first attempt times out (packages may have been partially cached)
+- The `uv` cache at `~/.cache/uv/` is not shared with pip — mixed tooling doesn't help
+
 ## Pitfalls & Learnings
 
 1. **Pipe-table displacement**: All `|` text blocks shift past next heading. Never use pipe tables in Feishu md content.
@@ -399,6 +434,7 @@ Key folder tokens for delivery:
 9. **Move ≠ Delete/PATCH**: Use `POST .../move` with proper `type` field. `PATCH parent_token` does NOT work.
 10. **Empty before delete**: Folders must be emptied (all files removed) before the folder itself can be deleted.
 11. **File type matter**: `POST .../move` needs `type: "docx"` for Feishu docs, not `"file"`.
+12. **lark-oapi not installed**: If `feishu-wiki-sync.py` fails with `ModuleNotFoundError: No module named 'lark_oapi'`, install via `pip3 install lark-oapi --break-system-packages --timeout 30` (Debian/Ubuntu externally-managed Python workaround). On first runs after creation this is a common gap.
 
 ## Common Error Codes
 

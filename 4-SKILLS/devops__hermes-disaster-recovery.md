@@ -221,6 +221,8 @@ For **cross-framework portability** — extracting the agent's identity into a p
 
 ## Related Skills
 
+- `system-service-reliability` — Service auto-start after OS reboot & safe restart
+  protocol (complementary: DR covers data backup; SSR covers "stays running")
 - `agent-soul-extraction` — Cross-framework identity portability (complementary paradigm)
 - `agent-memory-management` — focuses on preventing memory bloat and pruning, complements backup strategy
 - `system-health-audit` — broader system health checks that include backup verification

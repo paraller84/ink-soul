@@ -169,6 +169,16 @@ Output format (copy this template):
 - Each with clear options
 ```
 
+## Special Case: AI Agent Skill Evolution / Self-Improvement Frameworks
+
+When evaluating external skill evolution or self-improvement agent frameworks (e.g., `hermes-agent-self-evolution`, `EvoSkill`, DSPy-based approaches):
+
+1. **Distinguish "polish existing skills" vs "discover new skills from failures"** — These are fundamentally different design philosophies. The first is incremental optimization; the second is generative discovery.
+2. **Use the 12-dimension evaluation matrix** in `references/skill-evolution-frameworks-evaluation.md` — covers license, maturity, scope, cost, cross-agent compatibility, failure-trajectory support, Chinese support, and more.
+3. **Apply the pain-point mapping matrix** — Map each framework feature to specific system pain points (skill maintenance burden, content quality, tool call inefficiency, missing skill discovery).
+4. **Prefer order of consideration**: EvoSkill > Native in-core evolution > hermes-agent-self-evolution standalone (based on maturity vs integration cost).
+5. **Key guardrail**: Any evolution framework must preserve semantic intent — skills evolved should not drift from original purpose. Always test on held-out validation data.
+
 ## Practical Example
 
 See the advisory council report at:
@@ -176,6 +186,9 @@ See the advisory council report at:
 (Or Feishu doc `HXGKdkonWo7LEFxiWlFc0vCjnLc`)
 
 This was a real evaluation of a "Knowledge Engineer" proposal against C005 v3.0, resulting in a system knowledge sync pipeline.
+
+See also:
+`references/skill-evolution-frameworks-evaluation.md` — Comprehensive 12-dimension evaluation template for comparing skill evolution frameworks.
 
 ## Common Pitfalls
 

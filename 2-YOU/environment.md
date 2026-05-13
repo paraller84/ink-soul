@@ -62,7 +62,80 @@ C003 数学模块改造完成（2026-05-12）。架构从 bundle模式改为sess
 §
 Tool quirk: `patch()` tool (from hermes_cli) can silently fail — returned "ok" for 6 files but modified 0. Root cause unknown (possibly the old_string didn't exactly match due to whitespace/encoding, but tool returned ok anyway). When critical file modifications fail silently, always verify with a secondary check (read back or grep). For guaranteed writes, use direct Python file operations or `patch` with careful string matching and post-write verification.
 §
-Feishu 群聊平行对话架构: 5个群已创建（oc_8d3cb78bca0c29e354fe15d97279bca0=汇报材料, oc_59e724c052b3c57d77946d81db82476e=会议处理, oc_9eef4ca9d845d397e908975a3104111d=内容生成, oc_64bcdf55431bedc8ba75d27c70cd4b0a=每日思想碰撞, oc_e9f5d48f82f74064f2526e271759235d=教育系统优化）。FEISHU_GROUP_POLICY=open无需@。每个群独立会话上下文，可同时并行处理不同任务。已注册到feishu-tokens.json。
+Feishu 群聊平行对话架构共6群：📊汇报材料(oc_8d3cb78bca0c29e354fe15d97279bca0)、📋会议处理(oc_59e724c052b3c57d77946d81db82476e)、✍️内容生成(oc_9eef4ca9d845d397e908975a3104111d)、💡思想碰撞(oc_64bcdf55431bedc8ba75d27c70cd4b0a)、🎓教育优化(oc_e9f5d48f82f74064f2526e271759235d)、📬邮件消息协助(oc_9b099093361d28b19fc35dcd66cb2bdf)。FEISHU_GROUP_POLICY=open无需@。每个群独立会话上下文。
+§
+2026-05-12 融入 Hermes 生态：①已安装 `avoid-ai-writing`（降AI味审计技能，来自conorbronsdon，3.3.1），集成到内容工厂(C014)管线作为生成后双重审计（真实性校验→AI-isms detect→二次审计），content-factory-workflow 升级至 v1.5.0。②生态洞察：hermes-agent 本体 121K⭐处绝对头部；中文生态已有完整闭环（Orange Book→Superpowers-zh→agency-agents-zh→avoid-ai-writing）。
+§
+Infrastructure reliability priority: When user says "最急迫的事" (most urgent thing) about system reliability/stability, halt all feature/skill upgrade proposals and focus entirely on the infrastructure fix. The user will explicitly redirect from feature work to reliability work when they perceive a stability risk — don't keep pushing feature suggestions after this signal.
+§
+Infrastructure architecture: Ollama runs on Windows side (not WSL), auto-starts with Windows boot. Hermes Gateway is a systemd user service (hermes-gateway.service, Restart=always, 60s backoff, After=network-online.target) and automatically manages MCP servers (token-savior, getnote) as child processes — no separate MCP service needed. Edu-Hub (app.py :5002) currently on @reboot cron (unreliable), needs conversion to systemd user service. WSL has systemd=true in /etc/wsl.conf. Gateway baseline memory ~815MB with active session.
+§
+CRITICAL: In WSL, systemd user services (systemctl --user) do NOT auto-start at boot. They start only when the user logs into WSL. The WSL VM itself is lazily started — it doesn't boot until something accesses it. To auto-start services after OS reboot, use Windows Scheduled Task (trigger: AT LOGON) that runs `wsl -d Ubuntu bash -c "..."` to force WSL startup AND launch services. The `systemctl --user enable` approach alone is insufficient for WSL.
+
+Watchdog pattern: agent cannot monitor its own restart (process disappears). Correct approach: external watchdog at Windows level (Scheduled Task repeat 5 min) that checks PID and restarts if dead. STOPPED.flag mechanism distinguishes intentional stops from crashes. Deployed scripts in C:\Users\yeyu_\hermes-scripts\ (hermes-wsl-boot.bat, hermes-watchdog.ps1) and ~/.hermes/scripts/ (hermes-stop.sh, hermes-start.sh).
+§
+Hermes可持续运行体系（2026-05-13建立，三层防护）：
+- L1（已生效）Windows Registry Run key：登录后自动启动WSL+Gateway+Edu-Hub，无需手动开终端。入口：C:\Users\yeyu_\hermes-scripts\hermes-boot.vbs
+- L2（已生效）WSL cron看门狗：*/5 * * * * ~/.hermes/scripts/watchdog.sh，Gateway崩溃自动重启。STOPPED.flag抑制机制。
+- L3（待执行）系统级计划任务：桌面 hermes-system-install.bat，右键管理员运行一次后，Windows启动无需登录即可拉起WSL服务。下次回电脑前执行。
+- 管理命令: bash ~/.hermes/scripts/hermes-stop.sh（暂停看门狗），bash ~/.hermes/scripts/hermes-start.sh（恢复+启动Gateway）
+- 飞书群聊平行对话架构共6群：📊汇报材料(oc_8d3cb78bca0c29e354fe15d97279bca0)、📋会议处理(oc_59e724c052b3c57d77946d81db82476e)、✍️内容生成(oc_9eef4ca9d845d397e908975a3104111d)、💡思想碰撞(oc_64bcdf55431bedc8ba75d27c70cd4b0a)、🎓教育优化(oc_e9f5d48f82f74064f2526e271759235d)、📬邮件消息协助(oc_9b099093361d28b19fc35dcd66cb2bdf，2026-05-13新增)。FEISHU_GROUP_POLICY=open无需@。
+§
+会议待办归类策略（v2.3）. 2026-05-13全部重组完成。策略：6大分类（🔍数据核查/📄文档输出/🤝协调沟通/🛠系统建设/📋汇报材料/👥人员考核），同类合并为父任务+子任务（飞书原生subtask）。聚合规则：同类动作/同责任人/同工作流可合并；跨会议不合并；不同性质不合并。子任务>7项时再拆分。feishu-task-manager.py的create_task已支持parent_guid参数。技能文档已更新。旧版80条扁平任务已全部删除，29父+68子=97条新结构。
+§
+飞书Task子任务关键规则（⚠️ 2026-05-13踩坑记录）：①创建子任务必须用 `POST /tasks/{parent_guid}/subtasks`（GUID在路径中），不是 `POST /tasks` + body传parent_guid（会被静默忽略）。②子任务不能设members，否则用户"我的任务"列表会显示所有子任务（99条），失去归并效果。正确做法：只父任务有members→用户可见（29条），子任务无members→仅在父任务详情内折叠显示。feishu-task-manager.py create_task已修正：parent_guid存在时自动跳过members。
+§
+多模态模型已从 qwen3-vl:4b 升级为 qwen3-vl:8b（2026-05-12添加，8.8B Q4_K_M，约6GB VRAM，原生131K上下文）。配置已同步更新：config.yaml(auxiliary.vision.model + level_4_vision)、SOUL.md(L4架构)、local-executor.py(能力映射)、strategic-orchestrator skill(7处引用)。旧qwen3-vl:4b仍保留在Ollama中可备选调用。
+§
+企业邮件起草技能已沉淀: business-email-drafting (productivity目录)。含三风格矩阵（翟总=强势结论/跨部门=稳妥专业/同事=指令清晰）、核心结构模板、格式规范（禁用表格/阿拉伯数字编号/数据嵌入文字）。实测模板见 references/east-audit-forwarding-20260513.md。
+§
+EAST审计邮件回复策略（2026-05-13实践）:
+场景: 转发审计管理建议书给科创中心，抄送老苏
+收件人架构: To=科创中心部门总+技术负责人, CC=工作组组长(老苏)
+核心叙事结构:
+1. 开场→说明材料来源（X月X日会议后主动对接审计中心获取）
+2. 问题重叠→指出当期问题与上年审计发现高度重合（用数据说话）
+3. 分工方案→三管齐下：
+   - 技术侧先行摸排（科创中心，排除技术因素）
+   - 业务侧核查（数据管理部组织业务部门）
+   - 审计问题台账（数据管理部牵头，逐一推进）
+4. 尾巴→正在约审计中心专题交流，时间待定
+语气特征: 主动作为（不是被动转发）、分工明确不模糊、协作性而非追责性
+§
+Ollama 已升级至 0.23.3，GPU 已启用（RTX 4070，21.3 tok/s）。新增多模态模型 qwen3.5-256k:latest（6.3GB），能力涵盖 completion/vision/tools/thinking，配置为 level_4_vision 主模型（降级 qwen3-vl:8b 为备用）。qwen3.5:9b 的 base_url 从 192.168.3.102:11434 改为 localhost:11434。
+§
+语文模块 v3.1 拍照导入改造（2026-05-13完成）：
+- 5种内容类型：会写字(write_char)/会认字(recognize_char)/试卷(exam)/诗词(poem)/阅读理解(reading)
+- data model：chars 增加 recognition_type(word_examples(source字段), word_examples=组词(拼音)列表
+- 旧数据向后兼容：recognition_type缺失→会写字，meaning→word_examples迁移
+- 拍照导入UI：分类选择器（5种），qwen3-vl:8b按策略处理
+- 导入提示词已保存：chinese_v3/references/import-prompts.md
+- 出题引擎按recognition_type过滤：会认字→char_to_pinyin，会写字→pinyin_to_char+meaning_to_char
+- 文本导入格式扩展：会认字:/会写字: 头，append模式不覆盖
+§
+语文 v3 模板路径修复：chinese_v3/templates/v3/ → c11/（2026-05-13），避免与 english/v3/templates/v3/ 同名冲突导致 Flask 模板加载时找到英语页面。
+§
+开发方法论偏好：「骨架先行」——设计阶段先完成框架搭建（目录结构、import、class/def签名、route装饰器、html模板的extends/block/变量引用、方法调用关系、页面引用关系、数据流），在这层面落实命名规范/应用规范/调用规范后，再填充方法体。核心理念：规范应内化为习惯而非检查点——「开始写之前，骨架已经保证不会错」；语法约束在代码块层面兜底，真正危险的错误在设计层面。Step 2.5 骨架搭建应为编码流程的默认必经步骤，非按需可选。
+§
+WSL2 Mirrored 模式 + Windows Insider Build (26200.8457): portproxy 的 listenaddress=0.0.0.0 只捕获 loopback 流量，不捕获物理网卡入站流量。诊断金标准：Windows netstat 无 LISTENING 状态。修复：① netsh portproxy 用 listenaddress=<LAN_IP> 替代 0.0.0.0（需管理员）；② Python TCP 转发器在 Windows 侧运行（无需管理员）。已验证 Python+encoding='gbk' 写入 .bat 文件在 Windows cmd.exe 无乱码。
+§
+老代码治理策略「渐进边界法」已嵌入 C005 流程（v4.1）：
+- 按改幅分级：大改(Tier2+)=模式A(先修后改,2.4合规审计→2.5重构骨架→3填充逻辑)，小改(Tier1)=模式B(只修不动+标记)，Bug修复(C007 Mode D)=模式C(标记后跑)
+- 红线规则（必须修复不可放行）：href="#"导航链接、硬编码API路径、目录与内置模块同名、模板变量名不匹配、数据字段双重语义、双返回路径只改其一
+§
+用户偏好：当基础设施问题反复出现（3次以上），必须先在技能/知识库中查历史处理记录，完整回溯所有复发轮次的时间线、每次方案、为何再次失效，呈现根因分析后再给出方案。不可直接给新的一次性修复。此偏好已体现在 wsl-port-forwarding 技能的"复发模式识别"章节和 references/recurrence-case-study-20260513.md 参考案例中。
+§
+约束学习闭环已嵌入 C005 流程（v4.2）：测试/反馈暴露的设计缺陷 → 约束添加决策树 → 4级权重(🔧内置/🛡️门禁/📋清单/📚参考) → 写入references/constraint-registry.md。总量控制：🛡️≤5条，📋≤20条，超限降级/合并。每月1日自动瘦身(hits=0降级)。所有约束按频度评估升级/降级。
+§
+Flask API 调试经典模式（2026-05-13 C008语法模块发现）: ①参数顺序不匹配——路由调用传了无关变量（如student_id）到业务函数，位置参数错位导致整个API退回500。排查: 对比路由调用参数列表与函数签名。②表单提交方式不匹配——HTML form POST提交form-encoded但后端只收JSON（request.get_json()），导致所有参数丢失。排查: 检查请求Content-Type。两个陷阱已录入code-development-workflow skill (traps 33+34) + references/flask-api-mismatch-patterns.md。
+§
+ocr_engine.py 模型名已从 qwen3-vl:4b/qwen3-vl:8b 更新为 qwen3.5-256k:latest（两处：VLM_MODEL_NAME + DOCUMENT_MODEL_NAME）。语文模块OCR底层已接入新多模态模型。
+§
+约束学习闭环触发案例（2026-05-14）：OCR引擎硬编码模型名导致升级后静默失效 → 新增约束C021(硬编码模型名检查)到约束注册表 + ollama-upgrade-validation.md参考文档 + chinese-content-architecture skill模型引用更新。验证了约束添加决策树的完整链路：测试暴露缺陷→归类📋清单→写入Step 2.4合规审计。
+§
+Edu-Hub 统一设计系统 v1.0 (2026-05-14实施): 以英语C008风格为基准统一全系统。共享CSS: ~/edu-hub/static/edu-design-system.css。三模块统一 base.html 结构：body class="module-{english/math/chinese}" → sticky topbar(←返回+品牌+导航链接) → .container(max-width:800px)。返回按钮使用 {% block back_url %} 各页可覆盖。模块主题色: 英语#4f46e5(indigo), 数学#FF8C00(暖橙), 语文#059669(翠绿)。数学base.html从无导航状态重建。语文base.html从底部TabBar改为统一topbar。语文6个家长页面全部从独立HTML改为继承base.html。数学practice/challenge页的返回按钮统一到base.html。
+§
+Edu-Hub 第一阶段CSS统一完成(2026-05-14): 进度条→共享.progress-bar+.progress-bar-fill, 统计格→共享.stat-row+.stat-item, 按钮→共享.btn系列, 标签→共享.tag系列。英语模块50处、数学模块12处、语文模块17处类名替换。共享CSS新增.stat-value/.stat-label/.stat-icon/.stat-info别名兼容旧命名。
 
 ---
-Last synced: 2026-05-12 23:01
+Last synced: 2026-05-13 23:00

@@ -144,6 +144,13 @@ if data.get("code") == 0:
 ## 参考文件
 
 - `references/existing-groups.md` — 已建群聊清单（chat_id、用途、操作记录）
+- `references/at-mention-gate-code-fix-20260512.md` — @提及门控逻辑修复记录（Gateway 代码修改详情）
+
+## @提及门控修复要点
+
+`FEISHU_GROUP_POLICY=open` 仅控制"哪些用户可以触发"，不控制"是否触发响应"——Gateway 还有一个独立的 `_should_accept_group_message()` 方法执行 @mention 检查。修复细节见参考文件。
+
+当用户问"群聊是否需要@机器人"时，**必须先查 Gateway 代码**，不要只凭环境变量值回答。
 
 ## 多群平行对话架构
 

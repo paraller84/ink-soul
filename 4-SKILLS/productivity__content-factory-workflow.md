@@ -1,7 +1,7 @@
 ---
 name: content-factory-workflow
 description: "C014 个人品牌内容工厂 — 周一选题→周二生成→周四/五发布的周级内容运营流水线。涵盖模块架构、cron编排、话题源管理、Feishu通知格式及常见故障恢复。"
-version: 1.3.0
+version: 1.5.0
 triggers:
 triggers:
   - user asks "run content factory" / "run C014" / "内容工厂"
@@ -28,6 +28,7 @@ triggers:
 |:----:|:----|:-----|:-----|
 | 🔍 选题 | 周一 08:00 | `python3 weekly_cron.py monday` | 1篇深度+2篇短内容的选题方案 → Feishu |
 | ✍️ 生成 | 周二 | `python3 weekly_cron.py tuesday` | 文章初稿（公众号/知乎/小红书）× 深度话题 |
+| 🛡️ 审计 | 生成后立即 | 自动触发 | 真实性校验 + AI-isms 审计（avoid-ai-writing detect） |
 | 🚀 发布 | 周四/周五 | `python3 weekly_cron.py thursday` | 发布提醒 & 状态汇总 |
 
 ## 代码结构
@@ -130,7 +131,72 @@ terminal(cmd, timeout=30)
 □ 是否有 "X个月我们做了Y" 但实际没做过的表述？
 □ 是否明确区分了"我们观察到的" vs "我们做到的"？
 □ 整篇文章定位是"实战分享"还是"思考分析"？前者只用于真实做过的事情
+□ 是否有任何工具/服务推荐不是用户实际使用的？（如推荐"通义听悟/Kimi/飞书AI"但用户实际用Ollama+DeepSeek/飞书Task/Get笔记 → ✗ 不可接受）
 ```
+
+### AI-isms 审计：生成后的自动审校环节（2026-05-12 新增）
+
+每篇文章生成后（无论是自动生成还是手动生成），必须在发布前经过 **双重审计**：
+
+```mermaid
+flowchart LR
+    A[文章初稿] --> B{真实性校验}
+    B -->|通过| C{AI-isms 审计}
+    B -->|未通过| D[定位修正/重写]
+    D --> A
+    C -->|通过| E[✅ 可发布]
+    C -->|有AI-isms| F[降AI味重写]
+    F --> G[二次审计]
+    G --> E
+```
+
+#### 第一关：真实性校验（沿用现有自查清单）
+
+即上方「内容真实性原则」中的自查清单。确保每段内容都能追溯到真实经历。
+
+#### 第二关：AI-isms 审计（新增）
+
+使用 `avoid-ai-writing` 技能对文章进行 **检测模式（detect）** 扫描：
+
+在生成文章时自动加载 `avoid-ai-writing` 技能，执行以下流程：
+
+```yaml
+# AI-isms 审计清单
+# 检测模式输出分组检查：
+P0 — 可信度杀手（必须修复）：
+  □ 有无 cutoff disclaimers（"As of my last update"）
+  □ 有无聊天机器人语气（"I hope this helps!" "Great question!"）
+  □ 有无空洞归属（"Experts believe" 无来源）
+
+P1 — 明显AI味（建议修复）：
+  □ 三级词汇表中的违规词（delve, leverage, harness, robust 等）
+  □ 模板句式（"Whether you're X or Y"）
+  □ "Let's"开头过渡句
+  □ 同义替换综合征（连续3次换词说同一件事）
+  □ 公式化开头（"In the rapidly evolving world of..."）
+
+P2 — 风格润色（时间允许时修复）：
+  □ 段落长度均匀
+  □ 空泛结尾（"The future looks bright"）
+  □ 动词过度替换（serves as, features, boasts → 直接用 is/has）
+  □ "Moreover"/"Furthermore"/"Additionally" 过渡
+```
+
+**审计输出**：在文章的可发布状态通告中，附上审计结果摘要。
+
+#### 第三关：二次审计（降AI味重写后的复检）
+
+如果第二关发现问题并进行了重写，必须对重写版本再次运行 `avoid-ai-writing detect`，确认新模式也已通过审计。
+
+---
+
+**三种典型虚构模式（2026-05-12 实战发现的系统性漏洞）**：
+
+| 虚构类型 | 示例 | 识别方法 | 如何修正 |
+|:---------|:-----|:---------|:---------|
+| **场景虚构** | "在保险行业尝试用AI Agent处理理赔"（用户没做过） | 问自己：这个案例有真实来源吗？ | 改为行业观察定位，去掉"我们"表述 |
+| **工具虚构** | 推荐"通义听悟/Kimi/飞书AI"（用户实际用Ollama+DeepSeek/飞书Task/Get笔记） | 核对用户的真实工具链 | 逐个替换为用户实际使用的工具 |
+| **身份虚构** | "作为一名AI架构师，我经历了…"（实际不是以这个身份经历的） | 检查叙述人称与用户真实角色的匹配度 | 改为"观察到…"/"思考…"中的洞察 |
 
 ### 话题多样性要求
 

@@ -160,6 +160,10 @@ grep -n 'May 0[5-9]' ~/.hermes/logs/errors.log              # 限定日期范围
 curl -s http://localhost:11434/api/tags | python3 -c "import sys,json;d=json.load(sys.stdin);[print(f'  {m[\"name\"]:30s} {m[\"size\"]/1e9:.1f}GB') for m in d['models']]"
 curl -s http://localhost:11434/api/ps    # 显存驻留状态
 
+# ⚠️ 验证 Ollama 是否真正使用 GPU
+# Ollama 可能在 CPU 上运行却不报错——仅检查 API 响应不够
+# 详见 references/ollama-gpu-diagnostics.md
+
 # ChromaDB
 du -sh ~/.hermes_tools/knowledge_base/   # 向量库大小
 

@@ -43,7 +43,7 @@ headers = {"Authorization": f"Bearer {token}"}
 
 ### Step 2: 创建文件夹
 
-**API**: `POST https://open.feishu.cn/open-apis/drive/v1/files/create_folder_at_parent`
+**API**: `POST https://open.feishu.cn/open-apis/drive/v1/files/create_folder`
 
 ```python
 import json, urllib.request
@@ -54,14 +54,14 @@ body = json.dumps({
 }).encode()
 
 req = urllib.request.Request(
-    "https://open.feishu.cn/open-apis/drive/v1/files/create_folder_at_parent",
+    "https://open.feishu.cn/open-apis/drive/v1/files/create_folder",
     data=body,
     headers={
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     })
 resp = json.loads(urllib.request.urlopen(req).read())
-folder_token = resp["data"]["node"]["token"]
+folder_token = resp["data"]["token"]
 ```
 
 **响应示例**:
@@ -69,18 +69,15 @@ folder_token = resp["data"]["node"]["token"]
 {
   "code": 0,
   "data": {
-    "node": {
-      "token": "AbCdEfGhIjKlMnOpQrStUvWxYz",
-      "name": "文件夹名称",
-      "type": "folder"
-    }
+    "token": "AbCdEfGhIjKlMnOpQrStUvWxYz",
+    "url": "https://xxx.feishu.cn/drive/folder/AbCdEfGhIjKlMnOpQrStUvWxYz"
   }
 }
 ```
 
 ### Step 3: 共享给用户
 
-**API**: `POST https://open.feishu.cn/open-apis/drive/v1/permissions/{token}/members?type=file`
+**API**: `POST https://open.feishu.cn/open-apis/drive/v1/permissions/{token}/members?type=folder`
 
 ```python
 body = json.dumps({
@@ -90,7 +87,7 @@ body = json.dumps({
 }).encode()
 
 req = urllib.request.Request(
-    f"https://open.feishu.cn/open-apis/drive/v1/permissions/{folder_token}/members?type=file",
+    f"https://open.feishu.cn/open-apis/drive/v1/permissions/{folder_token}/members?type=folder",
     data=body,
     headers={
         "Authorization": f"Bearer {token}",
@@ -135,7 +132,7 @@ urllib.request.urlopen(req)
 ### 1. Token 漂移（Error 1770039）
 飞书文件夹的 URL 中后 12 个字符可能会变化。创建/查找到的 token 务必立即记录。
 **症状**：`error 1770039` — token 的末 12 位与实际值不符。
-**解决**：始终从 API 返回的 `data.node.token` 中获取 token，不通过拼接 URL 猜 token。
+**解决**：始终从 API 返回的 `data.token` 中获取 token，不通过拼接 URL 猜 token。
 
 ### 2. 文件夹名称唯一性
 在同一父文件夹中创建同名文件夹会创建多个同名文件夹。建议：
@@ -174,8 +171,8 @@ cd ~/.hermes/scripts && python3 feishu-md-writer.py <doc_token> <markdown_file>
 3. 调用 feishu-md-writer.py 写入
 4. 再分享给用户
 
-**注意**：`feishu-md-writer.py` 依赖 `feishu_tokens.py`，必须从 `~/.hermes/scripts/` 目录运行。
-飞书 API 响应使用 `resp["data"]["node"]["token"]` 获取文件夹 token，而非 `resp["data"]["token"]`。
+**注意**：`feishu-md-writer.py` 依赖 `feishu_tokens.py`，必须从 `~/.hermes/scripts/` 目录运行。  
+创建文件夹的 API 返回 `resp["data"]["token"]`（不是 `resp["data"]["node"]["token"]`，`_at_parent` 后缀已废弃）。  
 对于创建文档（非文件夹），API 不同：`POST /open-apis/docx/v1/documents` 参数需要 `folder_token`。
 
 ## 完整 Python 示例脚本
@@ -193,23 +190,23 @@ def create_and_share(folder_name: str, parent_token: str) -> str:
     token = get_fei_token()
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    # Create folder
+    # Create folder (NOTE: use create_folder not create_folder_at_parent)
     body = json.dumps({"name": folder_name, "folder_token": parent_token}).encode()
     req = urllib.request.Request(
-        "https://open.feishu.cn/open-apis/drive/v1/files/create_folder_at_parent",
+        "https://open.feishu.cn/open-apis/drive/v1/files/create_folder",
         data=body, headers=headers)
     resp = json.loads(urllib.request.urlopen(req).read())
     assert resp.get("code") == 0, f"Create failed: {resp}"
-    folder_token = resp["data"]["node"]["token"]
+    folder_token = resp["data"]["token"]
 
-    # Share with user
+    # Share with user (NOTE: use type=folder for folders)
     body = json.dumps({
         "member_type": "openid",
         "member_id": "ou_50b21c92548fbb2173b049e57dfbdbec",
         "perm": "full_access"
     }).encode()
     req = urllib.request.Request(
-        f"https://open.feishu.cn/open-apis/drive/v1/permissions/{folder_token}/members?type=file",
+        f"https://open.feishu.cn/open-apis/drive/v1/permissions/{folder_token}/members?type=folder",
         data=body, headers=headers)
     urllib.request.urlopen(req)
 
