@@ -361,3 +361,38 @@ import json  # 确保 """ 在独立行
 
 - `references/import-prompts.md` — 五种内容类型的 LLM 提示词（完整可复制版本）
 - `references/data-model-migration.md` — 从旧 `meaning` 字段迁移到 `word_examples` 的脚本和步骤
+
+---
+
+## 八、统一设计系统集成
+
+语文模块门户（`portal.html`）已纳入 **Edu-Hub 统一设计系统 v1.1**，与其他模块共享 `edu-design-system.css`。
+
+### 门户结构
+
+```html
+{% extends "c11/base.html" %}
+{% block nav_coins %}{% endblock %}          {# 隐藏 nav 中的金币，用 profile 区的 #}
+{% block content %}
+  <!-- 个人信息区 .profile-section -->
+  <!-- 4项统计行 .stat-row -->
+  <!-- 功能入口卡片 .hub-card (练习/错题) -->
+  <!-- 课时列表 .calendar-section -->
+  <!-- 打卡日历 .calendar-section (checkin API) -->
+  <!-- 返回顶部 .back-to-top -->
+{% endblock %}
+```
+
+### 独有内容
+
+| 组件 | 说明 |
+|:-----|:------|
+| 课时列表 | 在打卡日历之前，以掌握度标签着色（tag-success/tag-warning/tag-danger） |
+| 错题入口 | 指向 `/chinese/v3/parent/wrong-book`（跨 Blueprint 用硬编码路径，不用 url_for） |
+| 日历 API | 复用已有 `/api/checkin/month` |
+
+### 注意事项
+
+- 语文 portal 在 `{% block content %}` 中，base.html 自动包裹 `<main class="container">`
+- 金币显示：base.html nav-links 中的 `coins-badge` 通过 `{% block nav_coins %}{% endblock %}` 隐藏，由 portal profile-section 的 `nav-badge coins` 替代
+- JS 从独立的 `portal.js` 内联化到 `{% block scripts %}` 中，减少外部依赖

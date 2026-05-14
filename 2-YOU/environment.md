@@ -136,6 +136,72 @@ ocr_engine.py 模型名已从 qwen3-vl:4b/qwen3-vl:8b 更新为 qwen3.5-256k:lat
 Edu-Hub 统一设计系统 v1.0 (2026-05-14实施): 以英语C008风格为基准统一全系统。共享CSS: ~/edu-hub/static/edu-design-system.css。三模块统一 base.html 结构：body class="module-{english/math/chinese}" → sticky topbar(←返回+品牌+导航链接) → .container(max-width:800px)。返回按钮使用 {% block back_url %} 各页可覆盖。模块主题色: 英语#4f46e5(indigo), 数学#FF8C00(暖橙), 语文#059669(翠绿)。数学base.html从无导航状态重建。语文base.html从底部TabBar改为统一topbar。语文6个家长页面全部从独立HTML改为继承base.html。数学practice/challenge页的返回按钮统一到base.html。
 §
 Edu-Hub 第一阶段CSS统一完成(2026-05-14): 进度条→共享.progress-bar+.progress-bar-fill, 统计格→共享.stat-row+.stat-item, 按钮→共享.btn系列, 标签→共享.tag系列。英语模块50处、数学模块12处、语文模块17处类名替换。共享CSS新增.stat-value/.stat-label/.stat-icon/.stat-info别名兼容旧命名。
+§
+Edu-Hub 统一设计系统 v1.1 (2026-05-13): 全面换用护眼配色方案（暖白#FDF8F0+柔和绿#5F8B6F+深灰#2C2C2C），所有门户组件（profile-section/profile-greeting/back-to-top/hub-card/card-tag/calendar-section/nav-badge）使用统一CSS类名。三个模块门户模板已统一：英语(portal_v4.html→extends v3/base.html, 含今日任务/专项练习/大挑战/日历)、数学(student_portal.html→extends v2/base.html, 含今日练习/大挑战/成就/错题)、语文(portal.html→extends c11/base.html, 含课时列表/错题/日历)。CSS变量在edu-design-system.css中集中管理。修复了base.html nav-links中coins-badge与门户profile-badge的重复显示问题（通过nav_coins block控制）。
+§
+命名空间/Blueprint级重构教训（2026-05-14）：直接执行跨3模块的蓝图改名+URL前缀变更，跳过了C005流程，导致app.py中Chinese注册漏改+无验证步骤。用户批评「没有通过严格的任务处理路径」。此类变更默认Tier3，最后改app.py，重启前跑完整性扫描(grep旧引用)。已写入code-development-workflow技能红线规则。
+§
+设计文档格式偏好：主交付物必须是HTML（含CSS+UI线框图），上传飞书Drive；内容用表格+项目符号列表，避免散文；版本号v1->v2->v3递增。advisory-council-workflow skill已更新此规范，含 references/design-document-format-实战案例.md 实战经验。
+§
+AI家庭教师系统 v1.9设计完成：18页面原型（新增积分规则/荣誉称号大全/题库管理）+ 积分策略/荣誉称号全规则展示。HTML线框图本地在~/.hermes/cache/ai-home-tutor-design-v1.9.html。
+§
+设计交付物格式：所有设计方案必须使用HTML（含CSS+UI线框图），上传飞书Drive；不写纯Markdown/散文式方案文档。版本号v1→v2→v3递增。此偏好已确认（2026-05-14，AI家庭教师系统设计）。
+§
+Vision分析故障处理经验（2026-05-14）: browser_vision工具返回"Connection error"时，回退方案为直接调用Ollama API。qwen3-vl:8b支持images字段（在message对象内），而qwen3.5-256k:latest不支持此格式。正确API payload: messages[{"role":"user","content":"...","images":[base64]}]。模型在Ollama中不在WSL PATH上（ollama运行在Windows侧，仅API可访问）。
+§
+邮件→知识库分类管道已建立（email-to-knowledge-pipeline, productivity）。五级分类：🔴needs_reply(To+行动)/🟡needs_attention(CC但核心职责)/🟡valuable(方案纪要审计报告政策)/⚪routine(知悉归档)/⚫discard(系统通知/内部事务)。会议通知提取时间线元数据不进正文索引。转发链保留链末+替代回退。数据质量报表多版本全保留。分类策略经25封EAST邮件验证，用户确认通过。
+§
+邮件处理管道架构：公司电脑 Foxmail → Python脚本自动导出.eml → WPS云盘同步 → Hermes KB管线。Foxmail本地存储为MBOX格式(.BOX文件)，Python用标准库mailbox解析。导出脚本在 ~/.hermes/scripts/email/foxmail-auto-export.py。邮件采用五级分类策略(needs_reply/needs_attention/valuable/routine/discard)，规则文档在 knowledge_base/references/email-classification-strategy.md。
+§
+健康打卡反馈偏好：每条提醒即独立打卡点。回复 ✅ + 时间/说明=记录为已执行；不回复=默认未执行❌。已建立cron健康提醒体系（10条分时段推送+health-tracker日志）。午餐时发菜单给我，我推荐搭配，用户会立刻按推荐执行。
+§
+设计交付必须出完整方案而非仅变更部分。新增/修改设计方案时，必须包含全部内容（原始已有+新增修改），不能只输出增量变更部分。
+§
+修改/扩展设计方案前，必须先调研现有系统（如OCR引擎、提示词、导入管线等）的实际实现，分析可复用部分和需要新建的部分，向用户汇报后再进行方案修改。
+§
+## 自动化任务依赖拓扑（2026-05-14建立）
+
+### 核心枢纽：WPS云盘 (/mnt/g/WPSDocument)
+单点故障路径。依赖 Windows 侧 WPS云盘客户端运行 + DrvFs 挂载正常。6个脚本依赖此路径。
+- 邮件管线：foxmail-auto-export.py(Win端)→G:\WPSDocument\WPS云盘\邮件\自动导出\→email_classifier.py(WSL端)
+- 知识库管线：kb_organize.py/kb_pipeline.py/kb_vectorize.py/kb_health.py 全部依赖 /mnt/g/
+
+### C014 内容工厂工作流
+周一 08:00 (109e836fd119) → 选题 → 缓存 content-factory-calendar.json
+周二 08:00 (54c117b76344) → 生成三平台初稿 ← 新增（原缺失导致空跑）
+周五 09:00 (5772dbd93675) → 发布提醒（已加缺稿检测逻辑）
+
+### 健康提醒投递目标
+10个 cron 投递到 feishu:🏥 健康管理群 (group)，2026-05-14 从错误 chat_id 修正
+
+### 数学辅导管线（独立，无依赖问题）
+raw-exam-parser(08:00/20:00)→daily-practice(07:00)→学习日报(07:30)
+§
+Hermes Agent venv (~/.hermes/hermes-agent/venv/) has Flask 3.1.3 + Werkzeug 3.1.8 but NOT flask_sqlalchemy. New Flask apps must either use native sqlite3 (db.py pattern: get_db()/dict_from_row()/dicts_from_rows()) or install flask_sqlalchemy first. Discovered 2026-05-14 when AI家庭教师's SQLAlchemy data layer had to be fully rewritten mid-project (~15 Python files, ~2.8M tokens).
+§
+## no_agent cron 脚本参数陷阱（2026-05-14踩坑）
+cron 调度器将 script 字段整体作为文件路径查找，不支持参数（如 `"health-reminder.py 2100"` 会找不存在的文件）。修复方案：为每个参数组合创建独立的 shell wrapper 脚本（如 `health-reminder-2100.sh`），wrapper 内 `exec python3 health-reminder.py 2100`。10个健康提醒已全部用 wrapper 替换。未运行的 cron 将在下次调度时自动生效。
+§
+Flask E2E测试经验（2026-05-14 AI家庭教师）：
+- SQLite DELETE后autoincrement不重置，需 `DELETE FROM sqlite_sequence`
+- SQLite TEXT字段在Jinja2中不能 `.strftime()`（不是datetime对象）
+- 子代理创建模板时命名与route不一致 → 需模板文件存在性检查
+- API测试需先创建session（学生/家长登录），否则返回401/403
+- 模板变量名不匹配（route传a→模板读b）不报错，仅静默空渲染
+- Flask test_client使用独立session，每个test_client需独立登录
+§
+C005关键盲区修复（2026-05-14）：模板错误是运行时错误，compile()语法检查无法捕获。在Step 4中新增「阶段B.5: Flask模板运行时渲染验证」——用app.test_client()实际渲染每个页面，捕获Jinja2 UndefinedError/TemplateNotFound/BuildError。所有涉及Flask的Tier1+任务强制执行。这是用户「刚说完成，一点进去就发现模板错误」痛点的根因解决方案。已更新code-development-workflow SKILL.md + 约束注册表。
+§
+2026-05-14 C005 Step 4 加固：新增 Phase D 黄金数据测试（OCR/拍照/导入用真实数据测全链路）、Phase E 设计实现对照（逐项对比设计文档）和用户动线测试（模拟完整用户路径）。Step 4 入口门禁自检扩展至 B.6/B.5/D/E 四项，勾选后强制执行。测试数据统一存放于 ~/.hermes/test-data/，当前含 AI 家庭教师系统 10 份真实样例。约束注册表新增 C021(黄金数据测试)/C022(设计实现对照)/C023(用户动线测试)。
+§
+2026-05-14 交付质量逃逸分析已写入 code-development-workflow/references/delivery-quality-escapes-analysis.md。核心发现：C005 Step 4 的 B.5/B.6/C/D 验证阶段完备，但 Agent 在"快点交付"心态下跳过执行。新增 Phase D 黄金数据测试（10份真实样例在 ~/.hermes/test-data/ai-home-tutor/）。SKILL.md 超 100K 无法 patch version bump，需下次先 trim。
+§
+2026-05-14 skill 更新: 
+1. code-development-workflow — 已固化 Phase D 黄金数据测试/Phase E 设计对照+动线测试/Step 4 入口门禁
+2. references/golden-test-data-convention.md — 新文件，记录测试数据目录结构、MANIFEST.md 规范、当前已有数据集（AI家庭教师 10 份样例）
+3. references/delivery-quality-escapes-analysis.md — 补充错误4（设计实现缺口）、错误5（导航断链）复盘，Phase E 修复措施，更新参考指针
+4. 约束注册表 C021(黄金数据测试)/C022(设计实现对照)/C023(用户动线测试) 已就位
+SKILL.md 超 100K 限制，后续新增参考内容走 references/ 目录
 
 ---
-Last synced: 2026-05-13 23:00
+Last synced: 2026-05-14 23:00

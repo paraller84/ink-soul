@@ -746,3 +746,4 @@ for old_path, warning in OLD_PATHS.items():
 | `references/template-folder-missing-debug.md` | **template_folder 缺失调试**：Bluepoint 无 template_folder 时 Jinja2 静默回退到其他 Blueprint 的完整诊断流程、根因分析和预防清单 |
 | `references/test-feedback-to-feature-changes.md` | **测试反馈→功能修改工作流**：基于用户/QA测试反馈对已有Flask应用进行定向修改的完整模式，含子代理协调陷阱和残留码清理 |
 | `references/post-deployment-portal-audit.md` | **升级后 portal 链接审计**：创建子系统新版本后，检查所有 portal 链接（app.py + __init__.py）是否指向新版路径，见 `blueprint-replication-pattern.md` 的「升级后检查清单」 |
+| `references/cross-module-portal-unification.md` | **跨模块门户统一**：三模块（英语/数学/语文）统一门户页面的完整模式 — 使用 `{% set %} + {% include %}` 共享模板组件、base.html block 定制、护眼配色方案、科目选择器一致性。包含关键陷阱（block 名不一致、容器差异、重复徽章、url_for 跨 Blueprint 500、预览稿实现差异）|

@@ -388,9 +388,91 @@ PHASE 3 — Post-restart recovery (watchdog handles it)
   begins, your process is gone. Do not attempt post-restart verification from
   the agent itself — delegate to the watchdog.
 
+## Data-Flow Dependency Topology
+
+Service reliability isn't just about processes staying running — it's about whether
+those processes can **produce output** when they run. A cron job that runs successfully
+but finds nothing to process is an "empty run" (空跑). The root cause is often a
+broken infrastructure-level dependency that no process monitor catches.
+
+### Methodology: Mapping Hidden Dependencies
+
+When auditing task batches for "空跑" risk, do NOT stop at cron→cron chains. Trace
+the full data flow from source to consumer, including infrastructure layers:
+
+```
+[Source] → [Sync/Transport] → [Mount] → [Script reads] → [Script writes]
+```
+
+For each task batch, ask:
+1. What **infrastructure** must be available for this task to produce real output?
+   (Filesystem mount? Cloud sync client? Network volume?)
+2. What **upstream system** must have run before this task? Is there a cron for it?
+3. What happens when that upstream produces **zero new data**? (Legitimate empty run
+   vs broken pipeline?)
+4. Is there a **single point of failure** that multiple pipelines share?
+
+### Canonical Example: WPS Cloud Drive Dependency
+
+This is the largest hidden dependency in the current system — discovered during a
+session audit when the user corrected surface-level cron analysis.
+
+```
+Windows端 (公司电脑)
+  │
+  ├─ Foxmail → foxmail-auto-export.py (Task Scheduler 30min)
+  │     → .eml 写入 G:\WPSDocument\WPS云盘\邮件\自动导出\
+  │
+  └─ WPS云盘客户端（后台同步）
+        → G:\WPSDocument\ 本地同步目录
+        │
+WSL (DrvFs 直挂)
+  /mnt/g/WPSDocument/  (9p filesystem mount, real-time access)
+  │
+  ├─ email_classifier.py      → 邮件分类    (依赖: /mnt/g/WPSDocument/WPS云盘/邮件/自动导出/)
+  ├─ kb_organize.py            → 筛选入知识库 (依赖: /mnt/g/WPSDocument/)
+  ├─ kb_pipeline.py            → 增量+7级去重 (依赖: /mnt/g/WPSDocument/)
+  ├─ kb_vectorize.py           → 向量化      (依赖: /mnt/g/知识库文档/)
+  ├─ kb_health.py              → 健康检查     (依赖: /mnt/g/WPSDocument/)
+  └─ kb-wiki-sync.py           → Wiki 同步   (依赖: /mnt/g/WPSDocument/)
+```
+
+**6 scripts, 2 pipelines** depend on a single mount point. The failure modes:
+
+| Failure Point | Effect | Detection |
+|---------------|--------|-----------|
+| WPS云盘客户端未启动 (Windows reboot) | G:盘文件不是最新 | Scripts run, find nothing new → silent 空跑 |
+| DrvFs 挂载失败 (WSL restart issue) | /mnt/g/ inaccessible | kb_pipeline.py reports "目录不存在" |
+| Foxmail导出脚本停运 | 无新 .eml 进入管道 | email_classifier stats 停滞 |
+| 路径变更 | 硬编码路径失效 | Scripts crash with FileNotFoundError |
+
+**Key insight**: DrvFs gives real-time read access to the Windows G: drive from WSL.
+No WPS cloud sync delay exists for WSL reads — the mount is direct filesystem access.
+The risk is that the Windows-side **WPS cloud sync client** must be running for the
+G: drive directory to contain the latest synced files.
+
+### Pitfall: Infrastructure Dependency Blindness
+
+- **Cron status "ok" ≠ pipeline producing output**: A cron job may exit 0 but
+  process zero new items because its upstream data source is stale. This is the
+  most common "空跑" pattern — the script is correct, but the infrastructure layer
+  that feeds it is broken.
+- **/mnt/g/ is not "the cloud"**: It's a direct DrvFs mount of the Windows G: drive.
+  Don't confuse filesystem mount semantics with cloud sync semantics. The Windows
+  WPS cloud sync client is the actual sync layer — if it's down, the G: drive
+  directory is stale even though it's accessible.
+- **WPS云盘 is not the only mount**: Any pipeline that reads from `/mnt/c/`, `/mnt/d/`,
+  or `/mnt/g/` inherits WSL's DrvFs reliability characteristics. If DrvFs ever fails
+  to mount a drive letter, ALL pipelines reading from that drive go silent.
+- **Data-flow audit before feature work**: Before assuming a cron job is "working,"
+  check whether its upstream data source is producing new data. A healthy pipeline
+  with no input is not the same as a broken pipeline.
+
 ## Related Skills
 
 - `hermes-disaster-recovery` — Data backup & restore (complementary)
 - `wsl-port-forwarding` — Re-apply Windows port forwarding after WSL IP change
 - `system-health-audit` — Broader health audit checklist
 - `agent-memory-management` — Memory pruning to avoid runaway state
+- `email-to-knowledge-pipeline` — Email pipeline that depends on WPS云盘 mount
+- `personal-knowledge-base-management` — KB pipeline that depends on WPS云盘 mount

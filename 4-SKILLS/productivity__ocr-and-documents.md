@@ -161,6 +161,73 @@ No extra dependencies needed — pymupdf covers split, merge, search, and text e
 
 ---
 
+## Local Vision Model Analysis (Fallback)
+
+When `browser_vision` tool fails with "Connection error" (common in WSL/local setups), fall back to direct Ollama API calls for image analysis. This also works for any image analysis task beyond OCR — health reports, screenshots, diagrams, etc.
+
+### API Format (Verified Working)
+
+Only **qwen3-vl:8b** reliably supports vision via Ollama API. qwen3.5-256k:latest claims vision capability but does NOT accept the `images` field at the message level.
+
+**Correct payload format** — `images` field **inside** the user message object:
+
+```python
+import base64, json, urllib.request
+
+with open('image.jpg', 'rb') as f:
+    img_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+payload = {
+    'model': 'qwen3-vl:8b',
+    'messages': [{
+        'role': 'user',
+        'content': '请详细描述这张图片的所有内容',  # Or your analysis prompt
+        'images': [img_b64]
+    }],
+    'stream': False,
+    'options': {'num_predict': 2000}
+}
+
+req = urllib.request.Request(
+    'http://localhost:11434/api/chat',
+    data=json.dumps(payload).encode('utf-8'),
+    headers={'Content-Type': 'application/json'}
+)
+resp = urllib.request.urlopen(req, timeout=180)
+result = json.loads(resp.read().decode('utf-8'))
+print(result['message']['content'])
+```
+
+### Common Failure Modes
+
+| Error | Likely Cause | Fix |
+|-------|-------------|-----|
+| `images` field at top level of payload | Wrong format for qwen3.5-256k | Move `images` inside the message object (works with qwen3-vl:8b only) |
+| `json: cannot unmarshal array into Go struct field` | Content sent as array instead of string | Use string content + separate `images` field, not `content: [type, text]` format |
+| Model claims "I cannot see images" | Model doesn't support `images` field | Switch to qwen3-vl:8b |
+| Connection refused | Ollama not running or wrong port | Check `curl localhost:11434/api/tags` |
+| HTTP 400 | Malformed payload | Verify JSON structure matches exactly |
+
+### Model Compatibility
+
+| Model | Vision via `images` field | Notes |
+|-------|--------------------------|-------|
+| **qwen3-vl:8b** | ✅ | Primary vision model. Use this. |
+| qwen3.5-256k:latest | ❌ | Claims vision in metadata, does NOT accept `images` field in Ollama API |
+| qwen3-vl:4b | ⚠️ | Older, smaller. Replaced by 8B version. |
+
+### Environment Note
+
+Ollama runs on **Windows side** (not inside WSL), so the `ollama` CLI is not available in WSL PATH. All interactions must go through the HTTP API at `localhost:11434`.
+
+### When to Use This vs OCR
+
+- **Local Vision Model** → Best for: extracting structured data from complex document images (reports, forms with tables), understanding visual layout, reading handwritten text in context, analyzing charts/diagrams
+- **marker-pdf** → Best for: batch OCR of scanned PDFs with 90+ language support, equations, forms
+- **pymupdf** → Best for: text-based PDFs (digital-born, not scanned), fast extraction with no model dependencies
+
+---
+
 ## Notes
 
 - `web_extract` is always first choice for URLs
@@ -170,3 +237,4 @@ No extra dependencies needed — pymupdf covers split, merge, search, and text e
 - marker-pdf downloads ~2.5GB of models to `~/.cache/huggingface/` on first use
 - For Word docs: `pip install python-docx` (better than OCR — parses actual structure)
 - For PowerPoint: see the `powerpoint` skill (uses python-pptx)
+- For local vision model analysis (fallback when `browser_vision` fails): see `references/local-vision-api.md` for working code and troubleshooting guide

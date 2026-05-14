@@ -4,7 +4,7 @@
 §
 WSL: Ubuntu 24.04 LTS, 16GB RAM, 6核CPU, 8GB swap, NVIDIA RTX 4070 Laptop GPU(8GB VRAM, Compute 8.9), CUDA 12.6 Toolkit, nvidia-utils 590。用户 yeyu_。
 §
-个人信息: 42岁/上海/太平洋保险总公司数据管理部总经理助理/上海海事大学计算机本科。妻:平安健康保险科技产品负责人。子:10岁/三年级。工作黄金时间9:30-15:00。摩羯座。2006年起IT从业，2022转数据管理。个人品牌:AI应用专家(自媒体方向)。
+每日去陆家嘴办公室上班（太平洋保险总公司，数据管理部总经理助理），通过飞书远程协作Hermes Agent工作。工作黄金时间9:30-15:00。
 §
 工作风格: 极其注重细节和架构正确性。偏好结构化表格化呈现。只复制不删除原则（原文件永不触碰）。全本地模型策略。先梳理完整事项清单再动手。
 §
@@ -55,3 +55,19 @@ Prefers structured comparison tables for architecture decisions (responded posit
 Infrastructure reliability priority: When the user says "最急迫的事" (most urgent thing) about system stability/reliability, immediately halt all feature work and focus entirely on the infrastructure fix. This overrides all pending upgrades, skill deployments, and feature requests. The user has explicitly demonstrated (on 2026-05-13) that they will redirect from skill/content upgrades to reliability when they perceive a stability risk.
 §
 开发痛点：之前开发的系统"总是漏了或是和想的不一样"。对「可交互原型→精确参数→一次编码到位」的流程有强烈兴趣，认为可视化拖拽调整比自然语言描述更精准，能减少开发返工。偏好用可操作的原型验证需求后再动手编码。
+§
+Architecture preference: 当三个模块功能/风格一致时，偏好「建同一共享模板」而非「改三份各自模板」。设计预览稿确认后，编码前必须先检查 base.html 的 Jinja block 结构是否支持预览设计——将预览元素逐个与 base.html 可用 block 对比，缺失的 block 先加再编码。
+§
+用户对工作流合规性要求严格。2026-05-14 我跳过了 C005 直接执行命名空间统一，用户批评指出应走标准任务处理路径。核心期望：发现流程偏离时应先停下列完整审计报告，而非一边修复一边继续。宁可慢也要走对流程。
+§
+游戏化积分设计偏好：获得应严格有限（每日上限100分，单科40分），消费对价要高（玩30分钟游戏=200分≈3-4天练习），大额消费需家长审批。核心原则「积分来之不易，消费需经努力，一天练出来≠一周免费游戏」。对积分经济平衡很敏感，厌恶「通胀型」积分系统。
+§
+家庭多子女场景是默认需求。涉及家庭成员使用的系统（教育/娱乐/工具），必须从设计层面支持多用户/多角色/数据隔离，而非单用户+后期改造。
+§
+评估完整性是硬约束：顾问团模式C链式评估必须覆盖所有专业角色（教育专家/UX专家/系统架构师），不可跳过任何一轮。用户原话：「评估的完整性是必须的」。
+
+冷启动vs迭代调整区分：全新系统（冷启动）走完整4轮Socratic询问；已有基础的迭代调整不走4轮询问，但必须由专业角色链式评估通过后方可定稿。
+
+顾问团模式C的3角色配比偏好：🎓教育专家→🎨UX/前端专家→🏗️系统架构师（而非skill中原写的「产品经理」）。用户认为教育系统评估中UX专家比产品经理更对路。
+§
+作息偏好：午休30min不可省。晚间需要和我协作优化系统的时间（约20:30-21:00）。周一/三可和儿子慢跑30min（学校作业早完成）。需要固定社交时间（如每两周一次周五），提前和太太协调。阿姨负责接娃+做饭到20:00。太太21:00后到家，不一起吃饭。实际熄灯时间约23:00。运动偏好：通勤骑车（偶尔）+ 慢跑，但需要把运动嵌入日程缝隙而非单独腾时间。

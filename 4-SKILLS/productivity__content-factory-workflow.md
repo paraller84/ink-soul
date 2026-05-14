@@ -524,7 +524,10 @@ notifications:
 3. **周二阶段依赖周一缓存的日历文件** — 如果周一失败，周二直接跳到生成会报错
 4. **Feishu消息是纯文本Markdown格式** — 不是富文本卡片，飞书会渲染Markdown基本语法
 5. **脚本在cron中运行时没有交互式确认环节** — 所有输出自动发送到Feishu，用户需手动回复确认（/select或/skip）
-6. **`generate_feishu_message()` 不处理 `select_weekly_topics()` 返回的错误** — 如果话题池为空，仍会格式化为"待定"，而不是显示错误信息
+11. **工作流中的每个阶段都必须有对应的 cron 调度** — 文档中写了"周二生成"阶段（`python3 weekly_cron.py tuesday`），但从未创建对应的 cron 任务。周一→周二→周五的链式依赖中，周二环节缺失导致周五发布空跑。2026-05-14 新增 cron `54c117b76344`。验证方式：`cronjob list | grep C014` 应看到 3 个 cron：
+    - `109e836fd119` — 周一 08:00 选题
+    - `54c117b76344` — 周二 08:00 生成（2026-05-14 新增）
+    - `5772dbd93675` — 周五 09:00 发布提醒（已加缺稿检测）
 7. **缓存文件写入时间戳** — 如果周一在凌晨运行，缓存的 `generated_at` 和 `publish_date` 会使用运行时的datetime，不影响功能但注意时间
 8. **Cron deliver 默认为 `local`** — Hermes 创建 cron job 时 `deliver` 默认是 `local`。如果 cron 需要向用户发送飞书通知（选题建议、文章初稿等），必须手动改 `deliver: origin`。排查时先用 `cronjob list` 检查。
 

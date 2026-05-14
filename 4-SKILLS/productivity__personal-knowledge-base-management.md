@@ -7,7 +7,7 @@ license: MIT
 metadata:
   hermes:
     tags: [knowledge-base, document-management, automation, RAG, chromadb, ollama, WPS, file-organization]
-    related_skills: [knowledge-base-audit-and-rationalize, capability-registry-management, llm-wiki]
+    related_skills: [knowledge-base-audit-and-rationalize, capability-registry-management, llm-wiki, email-to-knowledge-pipeline]
     use_cases:
       - 从 WPSDocument（含子目录）自动化整理文档到知识库文档
       - 建立 ChromaDB 向量库并增量更新
@@ -540,6 +540,20 @@ python3 kb_pipeline.py         # ← 无参数，触发完整增量扫描
   >> /home/openclaw/.hermes_tools/knowledge_base/logs/cron.log 2>&1
 ```
 
+### 编者注：邮件处理已独立为 email-to-knowledge-pipeline
+
+`.eml` 文件的处理已从本技能中剥离，由独立的 `email-to-knowledge-pipeline` 技能管理。该技能包含：
+
+- **五级分类系统**：needs_reply / needs_attention / valuable / routine / discard
+- **Foxmail 自动导出**：公司电脑 → WPS 云盘 → Hermes
+- **LLM 分类引擎 + 规则回退**：全本地运行
+- **邮件时间线提取**：从会议通知/纪要中提取关键事件
+
+本技能负责分类后的 KB 向量化环节（流水线 Step 3）。新的 `.eml` 文件进入 WPSDocument 后：
+1. 先由 email-to-knowledge-pipeline 分类
+2. 有价值的保留在原位 → KB 管线通过增量扫描自动拾取
+3. 无价值的移入 `_routine/` 或 `_discard/`，不进 KB
+
 ### 陷阱 16：`.eml` 邮件文件进入知识库但无专用分类
 
 `WPSDocument/WPS云盘/邮件/` 和 `WPSDocument/我的邮件/` 中的 `.eml` 文件会被流水线递归扫描。
@@ -547,7 +561,11 @@ python3 kb_pipeline.py         # ← 无参数，触发完整增量扫描
 PDF/Word/PPT/会议纪要/方案文档/汇报材料/其他 七类中的任何一类，全部落入「其他」类别。
 
 **影响**：不会丢数据（`_archive` 只去重不丢弃），但知识库文档目录中
-「其他」类别会膨胀。如需分类支持，需在 organize 规则中新增 `.eml` → 邮件归档 的映射。
+「其他」类别会膨胀。
+
+**解决方案**：
+1. **短期**：在 organize 规则中新增 `.eml` → 邮件归档 的映射
+2. **长期**：使用 `email-to-knowledge-pipeline` skill 在邮件进入KB前完成五级分类（valuable→进KB，routine→仅存档，discard→不保留），分类后的邮件再走标准KB管线
 
 ```bash
 # ❌ 默认超时不够

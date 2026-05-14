@@ -1,0 +1,261 @@
+---
+name: email-to-knowledge-pipeline
+description: 邮件分类入库管道 — 对企业邮件进行五级分类（需回复/需关注/有价值→KB/知悉归档/丢弃），提取会议时间线，按转发链规则保留，最终接入知识库RAG。
+version: 1.0.0
+author: Hermes Agent (Ink)
+license: MIT
+metadata:
+  hermes:
+    tags: [email, knowledge-base, classification, automation, pipeline, feishu]
+    related_skills: [personal-knowledge-base-management, himalaya, business-email-drafting, meeting-minutes-workflow]
+    use_cases:
+      - 将企业邮件按价值分类，选择性纳入知识库
+      - 识别需回复/需关注的邮件，通过Feishu通知
+      - 从会议通知/纪要中提取关键事件时间线
+      - 转发链去重（保留链末+替代回退）
+      - 月度数据质量报告的多版本保留
+---
+
+# 邮件→知识库分类管道
+
+## 概述
+
+企业邮件（以 **CC位为主**的管理角色）→ 五级分类 → 选择性进入知识库 RAG 系统。
+
+```
+邮件源 → 角色判断 → 内容判断 → 标签分发 → Feishu通知 / KB摄入 / 时间线记录
+```
+
+## 触发条件
+
+当需要处理以下场景时加载此 skill：
+- 新邮件进入需要判断是否进KB
+- 需要对存量邮件进行回溯分类
+- 需要提取某时间段的关键事件时间线
+- 需要判断转发链/回复链的保留策略
+
+## 用户特征（前提条件）
+
+此 pipeline 基于以下用户画像设计：
+- **角色**：数据管理部领导（总经理助理），几乎100%处于CC位
+- **职责**：监督/把关/决策，非直接执行
+- **邮件特征**：To 位极少（极少数直接布置任务），CC 位占绝大多数
+- **企业邮箱**：cpic.com.cn（Exchange/OWA，IMAP支持待确认）
+
+## 五级分类系统
+
+### 🔴 needs_reply（需回复）
+
+| 维度 | 定义 |
+|------|------|
+| 触发 | 你是直接收件人(To) + 邮件含明确行动要求 |
+| 动作 | Feishu DM 主动弹窗提醒 → 加入C012待办 → 关联进KB |
+| 特征 | "烦请确认""请回复""请反馈""请审批"等指令性用语 |
+
+### 🟡 needs_attention（需关注）
+
+| 维度 | 定义 |
+|------|------|
+| 触发 | 你是CC但涉及数据管理部核心职责，或跨部门紧急协调 |
+| 动作 | Feishu 静默提醒（消息列表标注，不弹窗）→ 摘要进KB |
+| 典型场景 | 数据质量报告（34张表异动超50%）、跨部门协调闭环、监管类紧急事项 |
+| 核心原则 | **CC不代表无需关注**——数据质量、监管合规属于不可推卸的核心职责 |
+
+### 🟡 valuable（有价值→进KB）
+
+| 维度 | 定义 |
+|------|------|
+| 触发 | 含知识价值的邮件内容 |
+| 动作 | 完整邮件（含附件）→ KB向量化 + 元数据提取 |
+| 五大类 | ① 方案类（立项/技术/流程方案）② 纪要类（正式会议纪要）③ 审计类（底稿/回复）④ 报告类（质量报告/专项分析）⑤ 政策解读类（新规对照/意见汇总）|
+
+### ⚪ routine（知悉归档）
+
+| 维度 | 定义 |
+|------|------|
+| 触发 | CC知悉但无需行动 |
+| 动作 | 不进KB正文索引，摘要存档（月清理） |
+| 典型场景 | 已出结论的技术排查、非你职责的核对请求、操作变更通知 |
+
+### ⚫ discard（丢弃·不进KB）
+
+| 维度 | 定义 |
+|------|------|
+| 触发 | 无信息价值 |
+| 动作 | 不保留、不提醒 |
+| 典型场景 | 纯系统自动通知、内部事务性转发、纯操作变更 |
+
+## 会议时间线提取（辅助系统）
+
+即使会议通知本身不进KB正文索引，也必须提取结构化时间线记录：
+
+```yaml
+- date: 2026-03-10
+  type: 会议通知/会议纪要/工作安排/阶段性汇报
+  subject: 关于召开分公司EAST报送工作会议的通知
+  participants: 全国分公司财务/信息技术对接人(100+)
+  attachments: []
+  significance: EAST报送工作从财务部划转至数据管理部的宣导大会
+  related_meeting_minutes: <doc_token>
+```
+
+**用途**：用于「某时间段关键事件回溯」查询，串起问题发现→方案决策→落地执行的时间链。
+
+## 转发链保留规则
+
+### 默认：保留链末
+
+转发链（Fw_ / Fw_Fw_ / 转发_ 系列）一律保留**最后一封**。
+
+### 替代触发
+
+当链末满足任一条件 → 回退到最近一封含完整内容的邮件：
+1. 链末剥除了附件 / 正文被截断
+2. 链末仅为转发动作（"请查收""转发"等无实质内容）
+3. 链中某封含重要新附件
+
+### 回复链规则
+
+Re_ 系列默认保留最后一封（结论/汇总）。
+**替代触发**：中间某封含新附件/新信息 → 多封同时保留。
+
+### 混合链规则
+
+Fw_ + Re_ 混合 → 默认保留链末 → 替代按「最先含原附件」原则保留。
+
+## 特殊情况处理
+
+### 数据质量报告的多版本保留
+
+**策略**：全部保留（作为后续报告对比素材），**新版不替代旧版**。
+每封邮件记录元数据：月份、表数量、异常规则数、环比异动数。
+
+### 操作手册类文档
+
+**策略**：邮件正文可丢弃，**附件（操作手册）提取入库**。
+
+### 附件云盘链接
+
+发现邮件仅含云盘链接（无附件）→ 额外下载并归入知识库。
+
+## 典型邮件分类速查表
+
+| 发件特征 | 你 | 行动要求 | 分类 |
+|---------|-----|---------|------|
+| 上级布置任务 | To | "请确认/请回复" | 🔴 needs_reply |
+| 跨部门紧急事项 | CC | 涉及数据部职责 | 🟡 needs_attention |
+| 含方案/纪要/报告附件 | 任何 | 无行动要求 | 🟡 valuable |
+| 会议通知 | CC | 已参会 | 📅 仅时间线 |
+| 转发+无实质内容 | CC | 无 | ⚪ 归档 |
+| 纯系统通知 | CC | 无 | ⚫ 丢弃 |
+
+## 实现工具
+
+### Foxmail 自动导出（公司电脑 Windows 端）
+
+**脚本**：`~/.hermes/scripts/email/foxmail-auto-export.py`
+
+从 Foxmail 本地存储（MBOX 格式 `.BOX` 文件）增量导出 `.eml` 到 WPS 云盘目录。
+
+```bash
+# 公司电脑 (Windows) - 嵌入式 Python，无需安装
+C:\tools\python3\python.exe C:\tools\email-export\foxmail-auto-export.py          # 正常导出
+C:\tools\python3\python.exe C:\tools\email-export\foxmail-auto-export.py --dry-run  # 探测路径
+C:\tools\python3\python.exe C:\tools\email-export\foxmail-auto-export.py --status   # 查看状态
+```
+
+**部署**：Windows 任务计划程序 → 每 30 分钟触发（详见 `~/.hermes/scripts/email/README-WINDOWS-DEPLOY.md`）
+
+**技术要点**：
+- Foxmail In.BOX 是标准 MBOX 格式，Python `mailbox.mbox()` 直接解析
+- 读取前先 `shutil.copy2()` 到临时文件，避免 Foxmail 写入冲突
+- 按 Message-ID 增量追踪（存储在 `_export_state.json`）
+- 文件名格式：`YYYY-MM-DD_HHMM_主题.eml`
+- 嵌入式 Python（10MB）无需安装，直接解压使用
+
+### 邮件分类引擎（WSL 端 Hermes）
+
+**脚本**：`~/.hermes_tools/knowledge_base/scripts/email_classifier.py`
+
+```bash
+python3 email_classifier.py scan         # 扫描新邮件并分类（cron自动调用）
+python3 email_classifier.py notify       # 推送待通知队列到Feishu
+python3 email_classifier.py timeline     # 生成时间线文档
+python3 email_classifier.py stats        # 查看分类统计
+python3 email_classifier.py scan --all   # 全量重新扫描
+```
+
+**工作流程**：
+```
+自动导出目录 (.eml)
+    → email_classifier.py
+      ├─ 🟡 valuable → 保留在原位置 → KB管线自动拾取
+      ├─ 🟡 needs_attention → 保留 + 通知队列
+      ├─ 🔴 needs_reply → 保留 + 紧急通知队列
+      ├─ ⚪ routine → 移入 _routine/（不进KB但可追溯）
+      └─ ⚫ discard → 移入 _discard/（不保留）
+```
+
+**分类策略**：
+- 优先调用 Ollama LLM（qwen3.5:9b）进行语义分类
+- LLM 不可用时回退到关键词规则引擎
+- 分类结果存储在 `~/.hermes_tools/email_classifier/state.json`
+
+### Cron 调度
+
+| 任务 | 周期 | 脚本 | Job ID |
+|------|------|------|--------|
+| 邮件自动分类扫描 | 每30分钟 | `email-classifier-scan.sh` → `email_classifier.py scan` | `e3707b2f8549` |
+
+### 通知层
+
+分类器内置通知队列（`notification_queue` in state.json）。需配置 Feishu Webhook URL 后方可实际推送。
+
+配置方式：在 `email_classifier.py` 中设置 `FEISHU_WEBHOOK_URL` 变量。
+
+推送内容格式：
+```
+🟡 需关注
+主题: EAST报送4月数据质量报告
+发件人: EAST工作组
+时间: 2026-05-08
+你的角色: CC
+附件: 4个
+
+摘要：4月数据质量报告，122张表已生成，35张表环比异动超50%...
+```
+
+## 参考文件
+
+- `references/email-classification-strategy.md` — 完整分类策略文档（与KB共享）
+- `references/east-email-sample-analysis.md` — 基于25封EAST邮件的分类验证记录
+- `~/.hermes/scripts/email/README-WINDOWS-DEPLOY.md` — 公司电脑部署指南
+- `~/.hermes_tools/email_classifier/timeline.md` — EAST工作时间线（自动生成）
+
+## 关联系统
+
+| 系统 | 关系 |
+|------|------|
+| personal-knowledge-base-management | 下游：分类后的邮件向量化进入ChromaDB |
+| himalaya | 可选上游：IMAP邮件轮询获取新邮件 • ⚠️ 企业内网通常不支持 |
+| business-email-drafting | 互补：起草邮件 vs 处理收件 |
+| meeting-minutes-workflow | 互补：会议纪要处理（含说话人指认）含Feishu通知能力 |
+
+## 已知约束
+
+1. **企业邮箱限制**：公司邮箱（cpic.com.cn）不对外开放IMAP，不支持自动转发到外网邮箱
+2. **当前接入方式**：Foxmail 本地客户端 → Python导出.eml → WPS云盘同步（手动触发 + 定时扫描）
+3. **CC位主导**：用户角色特征导致99%+邮件处于CC位，needs_reply 类极少
+4. **需联网配置**：Feishu Webhook URL 需人工配置后才启用通知推送
+
+## 更新日志
+
+- v1.1.0 (2026-05-14): 新增实现工具（Foxmail导出/分类引擎/cron调度/通知层）
+  - 🆕 新增：foxmail-auto-export.py — 从Foxmail本地存储增量导出.eml
+  - 🆕 新增：email_classifier.py — 五级分类引擎（LLM分类+规则回退）
+  - 🆕 新增：cron任务，每30分钟自动扫描分类
+  - 🆕 新增：Feishu通知队列设计
+  - 🆕 新增：289封EAST邮件分类验证数据（references/east-email-sample-analysis.md）
+  - 📝 更新：已知约束章节
+  - 📎 新增：部署指南、时间线文档引用
+- v1.0.0 (2026-05-14): 基于EAST邮件289封样本分析创建。五级分类系统 + 时间线提取 + 转发链规则 + 特殊情况处理。

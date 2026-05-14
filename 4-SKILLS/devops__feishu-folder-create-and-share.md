@@ -1,7 +1,7 @@
 ---
 name: feishu-folder-create-and-share
 description: "在飞书云盘中创建专属文件夹并共享给用户（夜雨）的标准流程——包含API调用、Token注册、权限设置和常见陷阱"
-version: 1.0.0
+version: 1.1.0
 triggers:
   - user asks to create a Feishu Drive folder / 创建飞书文件夹
   - user asks to share a folder / 分享飞书文件夹
@@ -75,10 +75,80 @@ folder_token = resp["data"]["token"]
 }
 ```
 
+### Step 2b: 上传文件到飞书 Drive（非 docx 文档）
+
+当需要上传 HTML / PDF / 图片等**二进制文件**到飞书云盘（而非创建 docx 文档）时，使用 `upload_all` API：
+
+**API**: `POST https://open.feishu.cn/open-apis/drive/v1/files/upload_all`
+
+**请求格式**: multipart/form-data
+
+| 字段 | 值 | 说明 |
+|:-----|:---|:------|
+| `file_name` | `xxx-v1.9.html` | 文件名（含版本号） |
+| `parent_type` | `explorer` | 上传到文件夹 |
+| `parent_node` | `Otppfr9EelPIawdezL2csUXCnoh` | 目标文件夹 token |
+| `size` | `57357` | 文件字节数 |
+| `file` | (binary) | 文件内容 |
+
+**Python 实现要点**：
+- 使用 `email.mime.multipart.MIMEMultipart` 构建 multipart 请求体
+- 注意 `Content-Disposition` 中 `name` 字段需匹配 API 参数名
+- `Content-Type` 根据文件类型设置（HTML → `text/html`, 图片 → `image/png` 等）
+- 上传后立即分享给用户（见 Step 3）
+
+**完整代码模板**：
+```python
+import uuid, json, urllib.request
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+
+token = get_fei_token()
+folder_token = 'Otppfr9EelPIawdezL2csUXCnoh'
+
+msg = MIMEMultipart('form-data', boundary='----' + uuid.uuid4().hex)
+boundary = msg.get_boundary()
+
+for name, val in [('file_name', file_name), ('parent_type', 'explorer'),
+                   ('parent_node', folder_token), ('size', str(file_size))]:
+    p = MIMEText(val)
+    p.add_header('Content-Disposition', f'form-data; name="{name}"')
+    msg.attach(p)
+
+with open(file_path, 'rb') as f:
+    fb = f.read()
+part = MIMEBase('text', 'html')
+part.set_payload(fb)
+part.add_header('Content-Disposition', f'form-data; name="file"; filename="{file_name}"')
+part.add_header('Content-Type', 'text/html; charset=utf-8')
+msg.attach(part)
+
+body = msg.as_bytes().split(b'\n--' + boundary.encode() + b'--')[0] + b'\n--' + boundary.encode() + b'--\n'
+
+req = urllib.request.Request(
+    'https://open.feishu.cn/open-apis/drive/v1/files/upload_all',
+    data=body,
+    headers={'Authorization': f'Bearer {token}',
+             'Content-Type': f'multipart/form-data; boundary={boundary}'},
+    method='POST')
+resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+file_token = resp['data']['file_token']
+```
+
 ### Step 3: 共享给用户
 
-**API**: `POST https://open.feishu.cn/open-apis/drive/v1/permissions/{token}/members?type=folder`
+共享的 API 参数因对象类型不同而异：
 
+| 对象类型 | `type=` 参数值 | 示例 |
+|---------|---------------|------|
+| **文件夹** | `folder` | `?type=folder` |
+| **文档 (docx)** | `docx` | `?type=docx` |
+| **其他文件** | `file` | `?type=file` |
+
+**⚠️ 关键陷阱**：分享 docx 文档时必须用 `type=docx`，不要用 `type=file`（会报 1063001 Invalid parameter）。
+
+**共享文件夹**：
 ```python
 body = json.dumps({
     "member_type": "openid",
@@ -88,6 +158,24 @@ body = json.dumps({
 
 req = urllib.request.Request(
     f"https://open.feishu.cn/open-apis/drive/v1/permissions/{folder_token}/members?type=folder",
+    data=body,
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    })
+urllib.request.urlopen(req)
+```
+
+**共享文档**：
+```python
+body = json.dumps({
+    "member_type": "openid",
+    "member_id": "ou_50b21c92548fbb2173b049e57dfbdbec",
+    "perm": "full_access"
+}).encode()
+
+req = urllib.request.Request(
+    f"https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/members?type=docx",
     data=body,
     headers={
         "Authorization": f"Bearer {token}",
@@ -148,7 +236,28 @@ urllib.request.urlopen(req)
 from feishu_tokens import get_fei_token, get_token
 ```
 
-### 6. 创建文档后内容为空
+### 6. 分享 docx 文档时 type 参数错误
+
+**症状**：分享创建的飞书文档时报 `error 1063001: Invalid parameter`。
+
+**根因**：分享 API 的 `type` 参数需要匹配对象类型：
+- 文档 → `type=docx`
+- 文件夹 → `type=folder`
+- 其他文件 → `type=file`
+
+**修复**：确认对象类型后选择正确的 `type` 值。创建了 docx 文档后用 `type=docx`。
+⚠️ `type=file` 不适用于 docx 文档（会返回 `1063001`）。
+
+### 7. 飞书文档 API 调用失败时的本地缓存兜底
+
+**症状**：读飞书文档时 API 返回 404（可能是 token 漂移或 app 权限不足）。
+
+**兜底策略**：检查 `~/.hermes/cache/` 目录下是否有本地缓存副本。常见文件名模式：
+- `<项目名>-design-v<版本号>.html`（设计文档 HTML）
+- `advisory-v<版本号>-<角色>.md`（顾问团评估文档）
+- `<场景名>-v<版本号>.md`（其他文档缓存）
+
+### 8. 创建文档后内容为空
 
 使用 `POST /open-apis/docx/v1/documents` 创建的飞书文档是**空文档**（仅含标题）。如果只创建不填充，用户在飞书中打开看到的是一份空白页。
 
@@ -211,7 +320,24 @@ def create_and_share(folder_name: str, parent_token: str) -> str:
     urllib.request.urlopen(req)
 
     return folder_token
-```
+
+
+def share_document(doc_token: str) -> None:
+    """Share a docx document with the user."""
+    token = get_fei_token()
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    # Share with user (NOTE: use type=docx for docx documents, NOT type=file!)
+    body = json.dumps({
+        "member_type": "openid",
+        "member_id": "ou_50b21c92548fbb2173b049e57dfbdbec",
+        "perm": "full_access"
+    }).encode()
+    req = urllib.request.Request(
+        f"https://open.feishu.cn/open-apis/drive/v1/permissions/{doc_token}/members?type=docx",
+        data=body, headers=headers)
+    urllib.request.urlopen(req)
+
 
 ## 验证
 

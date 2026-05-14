@@ -694,9 +694,20 @@ python3 ~/.hermes/scripts/fix-daily-practice.py --help
 | `GET /api/import/prompts` | 导入提示词 | ✅ |
 | `POST /api/import/submit` | 提交导入内容 | ✅ |
 
-### 统一设计系统（2026-05-14 加入）
+### 统一设计系统（2026-05-14 加入，v1.1 护眼配色）
 
 数学模块已纳入 **Edu-Hub 统一设计系统**，与其他模块（英语/语文）共享页面框架。
+
+#### v1.1 配色变更（2026-05-13）
+
+| 方面 | v1.0 | v1.1 |
+|:----|:-----|:-----|
+| 背景色 | 纯白 `#f5f7fa` | 暖白 `#FDF8F0`（减少眩光） |
+| 强调色 | 按模块分（indigo/橙/翠绿） | 统一柔和绿 `#5F8B6F` |
+| 文字 | 纯黑 `#1e293b` | 深灰 `#2C2C2C`（降低对比度） |
+| 圆角 | 12px | 14px，药丸按钮 30px |
+
+数学模块的 portal（`student_portal.html`）已更新为 v1.1 设计，含 profile-section、stat-row、hub-card（带 card-tag/card-arrow/hub-progress）、back-to-top。
 
 #### 架构
 

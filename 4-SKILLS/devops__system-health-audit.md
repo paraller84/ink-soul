@@ -170,6 +170,60 @@ du -sh ~/.hermes_tools/knowledge_base/   # 向量库大小
 # 飞书 API 连通性（通过 Token 验证脚本间接确认）
 ```
 
+#### 5a. 依赖拓扑分析（关键补充 — 防隐形空跑）
+
+❗ **常见错误**：只检查单个 cron 的 `last_status`，忽略了跨任务的基础设施依赖。两个看似独立的 cron 可能共享同一文件路径/挂载点，一个挂了全家瘫痪。
+
+**依赖拓扑绘制方法**：
+
+```bash
+# Step 1: 列出所有 cron 及其脚本路径
+cronjob list
+
+# Step 2: 提取所有脚本读取的文件路径/Ollama模型/外部服务
+# 关注点：多个脚本是否共享同一条路径？
+grep -rn "/mnt/g/\|WPSDocument\|知识库文档\|EMAIL_INBOX\|WPSDOC_ROOT\|KB_ROOT" ~/.hermes_tools/knowledge_base/scripts/*.py ~/.hermes/scripts/*.py 2>/dev/null | grep -v ".pyc"
+
+# Step 3: 标记共享路径的脚本为「依赖集群」
+# 例：6个脚本共享 /mnt/g/WPSDocument/ → WPS云盘是单点故障枢纽
+```
+
+**关键检查项**：
+
+| 维度 | 检查方法 | 典型风险 |
+|------|----------|----------|
+| 共享文件路径 | `grep -rn` 所有脚本中的硬编码路径 | WPS云盘 /mnt/g/ 挂了→6脚本全空跑 |
+| 共享Ollama模型 | 检查多脚本引用的模型名 | 模型升级→静默失效 |
+| 共享API Token | 多脚本读同一 token 文件 | token 过期→连锁失败 |
+| 跨平台依赖 | Windows端脚本+WSL端脚本是否成对 | Foxmail导出不运行→分类器永远空跑 |
+| 脚本间数据依赖 | A 的输出 = B 的输入 | 周二生成缺 cron→周五发布空跑 |
+
+**排查技巧 — 识别「空跑链」**：
+
+对于有依赖关系的任务批次，检查链上每个环节的**实际产出**而非仅执行状态：
+
+```
+任务A (✅ ok) → 输出文件X → 任务B (✅ ok) → ...
+```
+
+```bash
+# 检查 A 是否产生了供 B 使用的文件
+ls -lt ~/.hermes/cache/content-factory-calendar.json  # 选题缓存存在？
+ls -lt ~/.hermes/data/content-factory-articles/       # 生成的文章存在？
+
+# 检查共享路径是否可写可读
+ls -la /mnt/g/WPSDocument/WPS云盘/邮件/自动导出/       # 邮件自动导出目录
+test -w /mnt/g/WPSDocument/                          # WPS云盘根目录可写
+mount | grep " /mnt/g "                              # DrvFs 挂载状态
+```
+
+**⚠️ WSL 特有 — DrvFs 挂载依赖**：
+- `/mnt/g/` 等挂载点在 WSL 重启后自动恢复（改: 仅当 WSL 正常关闭后再启动时；硬重启或 `wsl --shutdown` 后可能需重新 mount）
+- Foxmail 导出脚本运行在 Windows 端，通过 WPS云盘本地同步目录 → WSL 通过 DrvFs 读取
+- **关键诊断**：Windows 任务计划程序中的 Foxmail 导出脚本是否正常运行，比 WSL 侧 cron 状态更重要
+
+**参考**：`references/dependency-topology-20260514.md` — 本环境的完整依赖拓扑图
+
 ### 6. 子系统专项检查
 
 | 子系统 | 检查项 | 命令/路径 |
@@ -254,3 +308,5 @@ du -sh ~/.hermes_tools/knowledge_base/   # 向量库大小
 5. **Dual-registration 检查** — 如果 Flask 服务同时注册了独立 app 和统一 app，确认哪个进程实际运行
 6. **质量门禁滞后** — 修复后需主动 rerun quality_gate，不会自动更新
 7. **知识文档覆盖 gap** — C009 增量同步可能未覆盖所有系统，手动补齐
+8. **no_agent cron 不支持 script 字段带参数** — script 字段值被整体当文件路径解析，含空格时报 "Script not found"。参数必须由 shell wrapper 脚本封装（如 `health-reminder-0600.sh` → `exec python3 health-reminder.py 0600`）。创建 no_agent cron 时 script 路径必须无参数。
+9. **依赖拓扑分析要检查「批次上下游产出」而非仅 cron 状态** — 状态✅不代表有产出。五步法：列出依赖链 → 检查每个环节的中间文件是否存在 → 检查共享路径挂载 → 检查跨平台(Windows)脚本 → 检查脚本间数据流是否断裂（如周二生成缺 cron 导致周五发布空跑）
