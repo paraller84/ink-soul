@@ -392,6 +392,71 @@ for old, new in theme_map.items():
 
 ---
 
+## ⚠️ 设计转生产：清理框架伪影
+
+### 关键原则
+
+设计文档中的 phone-frame/pad-frame 双端并排展示模式是**设计阶段的产物**，绝不能让它们出现在最终落地的生产代码中。
+
+### 识别泄漏信号
+
+当生产环境中部署的页面出现以下特征，说明设计原型伪影泄漏：
+
+| 信号 | 原文 | 根因 |
+|:-----|:------|:------|
+| 页面上下堆叠两个版本 | 手机框 + 平板框同时渲染 | 模板直接复用了设计文档的 frame-container 结构 |
+| 显示"📱 手机视图 · 375px"等标签 | frame-label 显示设计标注 | 未去除设计阶段的标记文字 |
+| 手机打开时两种布局混杂 | 两个 frame 上下排列 | 缺少设备检测逻辑 |
+
+### 受影响组件
+
+每个设计原型页面都包含：
+- `.frame-container` — 包含两个子 frame 的容器
+- `.phone-frame` / `.phone-inner` — 手机端 (375px) 框架
+- `.pad-frame` / `.pad-inner` — 平板端 (600px) 框架
+- `.frame-label` — 设计标注（如"📱 手机视图 · 375px"）
+
+### 修复模式：CSS 媒体查询法（最小改动）
+
+不修改模板 HTML，仅在 CSS 中添加响应式规则，让设备宽度决定显示哪个版本：
+
+```css
+/* 设计标注 — 生产环境隐藏 */
+.frame-label { display: none; }
+
+/* 手机 (≤480px): 显示 phone-frame，隐藏 pad-frame */
+@media (max-width: 480px) {
+  .pad-frame { display: none; }
+  .phone-frame { display: block; }
+}
+
+/* 平板/桌面 (>480px): 显示 pad-frame，隐藏 phone-frame */
+@media (min-width: 481px) {
+  .phone-frame { display: none; }
+  .pad-frame { display: block; }
+}
+
+/* 移除 design 阶段的 spacing */
+.frame-container { display: block; padding: 0; }
+```
+
+### 更好的长期方案
+
+CSS 隐藏方案虽然快，但两个版本的内容仍在 DOM 中。长期应：
+
+1. **服务端检测**：在 Flask 的 `before_request` 中检测 `User-Agent`（或前端通过 JS 跳转），只渲染对应的模板
+2. **或统一为单套响应式设计**：不再维护两套布局，用 CSS Grid/Flexbox + `container queries` 自适应
+3. **设计文档生成阶段即标记**：在 HTML 模板中为双端原型添加 `data-role="design-only"` 属性，生产部署前用脚本批量剥离
+
+### 验证清单
+
+生产部署前逐一检查：
+
+- [ ] 页面上没有 `.frame-label` 元素显示设计标注
+- [ ] 手机端打开只显示 mobile 版本，不显示 pad 版本
+- [ ] 平板/桌面端打开只显示 pad 版本
+- [ ] 两种设备的核心功能（登录、做题、查看报告）均可正常操作
+
 ## 常见陷阱
 
 ### 1. 子代理将"更新文档"误解为"重写文档"

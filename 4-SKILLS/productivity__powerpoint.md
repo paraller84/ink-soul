@@ -233,7 +233,13 @@ print(result.text_content[:3000])
 Convert presentations to individual slide images for visual inspection:
 
 ```bash
+# Preferred — using soffice.py wrapper (handles clean temp files)
 python scripts/office/soffice.py --headless --convert-to pdf output.pptx
+
+# Fallback — direct libreoffice (more widely available)
+libreoffice --headless --convert-to pdf output.pptx
+
+# Convert PDF to images
 pdftoppm -jpeg -r 150 output.pdf slide
 ```
 

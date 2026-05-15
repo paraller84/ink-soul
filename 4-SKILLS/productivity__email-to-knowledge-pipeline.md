@@ -1,7 +1,7 @@
 ---
 name: email-to-knowledge-pipeline
 description: 邮件分类入库管道 — 对企业邮件进行五级分类（需回复/需关注/有价值→KB/知悉归档/丢弃），提取会议时间线，按转发链规则保留，最终接入知识库RAG。
-version: 1.0.0
+version: 1.2.0
 author: Hermes Agent (Ink)
 license: MIT
 metadata:
@@ -196,6 +196,12 @@ python3 email_classifier.py scan --all   # 全量重新扫描
       └─ ⚫ discard → 移入 _discard/（不保留）
 ```
 
+**扫描路径**（⚠️ 关键配置）：
+- `EMAIL_INBOX = "/mnt/g/WPSDocument/WPS云盘/邮件"` — 根目录
+- `EMAIL_INBOX_AUTO = os.path.join(EMAIL_INBOX, "自动导出")` — 子目录兼容
+- 扫描器同时检查**两个路径**中的 `.eml` 文件
+- Foxmail 导出脚本输出到根目录，手动拖放的邮件也放根目录，`自动导出/` 子目录作为传统兼容路径
+
 **分类策略**：
 - 优先调用 Ollama LLM（qwen3.5:9b）进行语义分类
 - LLM 不可用时回退到关键词规则引擎
@@ -232,6 +238,56 @@ python3 email_classifier.py scan --all   # 全量重新扫描
 - `~/.hermes/scripts/email/README-WINDOWS-DEPLOY.md` — 公司电脑部署指南
 - `~/.hermes_tools/email_classifier/timeline.md` — EAST工作时间线（自动生成）
 
+## 已知约束
+
+1. **企业邮箱限制**：公司邮箱（cpic.com.cn）不对外开放IMAP，不支持自动转发到外网邮箱
+2. **当前接入方式**：Foxmail 本地客户端 → Python导出.eml → WPS云盘同步（手动触发 + 定时扫描）
+3. **CC位主导**：用户角色特征导致99%+邮件处于CC位，needs_reply 类极少
+4. **需联网配置**：Feishu Webhook URL 需人工配置后才启用通知推送
+
+## 故障排查指南
+
+### 邮件"未被扫描"的第一检查项：路径对齐
+
+当用户报告「邮件放入了但没被检查到」时，**第一步永远检查路径对齐**：
+
+```
+Foxmail 导出目的地         → 分类器扫描路径
+E:\WPS云盘\邮件\*          ？  →  /mnt/g/WPSDocument/WPS云盘/邮件/自动导出/
+```
+
+**常见故障模式**：
+- Foxmail 导出到 `邮件/` 根目录，但分类器只扫描 `邮件/自动导出/` 子目录 → 邮件静默堆积
+- 用户手动将 .eml 文件拖入根目录而非子目录
+- WPS云盘同步延迟导致文件虽在Windows端但未挂载到WSL
+
+**诊断命令**：
+```bash
+# 1. 检查各目录中有多少 .eml 文件
+ls /mnt/g/WPSDocument/WPS云盘/邮件/*.eml 2>/dev/null | wc -l
+ls /mnt/g/WPSDocument/WPS云盘/邮件/自动导出/*.eml 2>/dev/null | wc -l
+
+# 2. 检查分类器状态
+python3 email_classifier.py stats
+
+# 3. 检查 Foxmail 导出日志
+cat /mnt/g/WPSDocument/WPS云盘/邮件/_export_log.txt
+
+# 4. 检查 cron 是否正常运行
+crontab -l | grep email
+```
+
+**修复**：如果邮件放在错误目录，移动到扫描路径即可。如需要修改扫描路径，调整 `email_classifier.py` 中的 `EMAIL_INBOX` 变量。
+
+### 常见问题
+
+| 症状 | 根因 | 修复 |
+|------|------|------|
+| 邮件文件存在但分类数为0 | 路径不匹配 | 检查EMAIL_INBOX配置 |
+| 分类后数量不增加 | Message-ID已存在state.json | 正常，跳过重复 |
+| _export_log.txt显示0封 | Foxmail .box文件路径变化 | 更新foxmail-auto-export.py路径 |
+| cron扫描后state.json不更新 | 权限/路径问题 | 手动跑一次看报错 |
+
 ## 关联系统
 
 | 系统 | 关系 |
@@ -241,15 +297,13 @@ python3 email_classifier.py scan --all   # 全量重新扫描
 | business-email-drafting | 互补：起草邮件 vs 处理收件 |
 | meeting-minutes-workflow | 互补：会议纪要处理（含说话人指认）含Feishu通知能力 |
 
-## 已知约束
-
-1. **企业邮箱限制**：公司邮箱（cpic.com.cn）不对外开放IMAP，不支持自动转发到外网邮箱
-2. **当前接入方式**：Foxmail 本地客户端 → Python导出.eml → WPS云盘同步（手动触发 + 定时扫描）
-3. **CC位主导**：用户角色特征导致99%+邮件处于CC位，needs_reply 类极少
-4. **需联网配置**：Feishu Webhook URL 需人工配置后才启用通知推送
-
 ## 更新日志
 
+- v1.2.0 (2026-05-15): 修复路径对齐故障 + 新增故障排查指南
+  - 🐛 修复：分类器 `EMAIL_INBOX` 路径过窄（只扫 `自动导出/` 子目录，漏掉根目录）
+  - 🆕 新增：分类器同时扫描根目录 + 自动导出子目录（`scan_dirs` 双路径）
+  - 🆕 新增：「故障排查指南」章节（路径对齐诊断流程 + 常见问题表）
+  - 📎 新增：`references/email-path-alignment-fix-20260515.md` 实战修复案例
 - v1.1.0 (2026-05-14): 新增实现工具（Foxmail导出/分类引擎/cron调度/通知层）
   - 🆕 新增：foxmail-auto-export.py — 从Foxmail本地存储增量导出.eml
   - 🆕 新增：email_classifier.py — 五级分类引擎（LLM分类+规则回退）

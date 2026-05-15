@@ -153,6 +153,7 @@ CMDEOF
 |:----|:-----|
 | `scripts/check-and-report-ports.sh` | 多端口审计脚本 — 一键检查 service/proxy/firewall/LAN |
 | `references/multi-port-batch-setup.md` | 批量补全缺失端口的实战方案（含 Step-by-Step + 代码模板） |
+| `references/comprehensive-7-step-diagnosis.md` | 7 步诊断流程 + 快速判读表 + 实战案例（2026-05-15） |
 
 ## 快速审计脚本
 
@@ -517,6 +518,27 @@ with open('/mnt/c/Users/yeyu_/Desktop/add_port.bat', 'w', encoding='gbk') as f:
 | 从 WSL 内 curl `<LAN_IP>` 超时 | **Windows 禁止 WSL→宿主回环** | 这是正常的。正确测试方式：从另一台 LAN 设备访问，或在 Windows CMD 中用 `curl.exe` |
 | CMD 显示 `'xxx' 不是内部或外部命令` | **.cmd 文件换行符为 LF 而非 CRLF** | 用 Python 重写：`with open(path, 'w', newline='')` + 内容用 `\r\n` 分隔 |
 | CMD 出现乱码字符 | **UTF-8 中文在 GBK 控制台显示** | 脚本开头加 `chcp 65001 >nul`，或所有输出用英文 |
+
+### 服务启动失败排查（步骤 1 失败时先查这个）
+
+当 `curl 127.0.0.1:<PORT>` 超时，说明**服务本身未运行**。不要直接跳到网络层，先诊断服务为啥没起来：
+
+1. **检查进程** → `ps aux | grep -E 'app.py|python.*app'` — 看服务进程是否存在
+2. **检查后台日志** → 如果服务是用 `terminal(background=true)` 启动的，用 `process(action='log')` 查看完整错误栈
+3. **常见失败模式**：
+   - Python import error（module not found、blueprint name mismatch 等）
+   - Flask Blueprint 注册名不匹配（如 `__init__.py` 中叫 `chinese_bp`，`app.py` 却 import `chinese_v3_bp`）
+   - 端口被占用 → `ss -tlnp | grep <PORT>` 确认
+   - SQLite 数据库创建失败（权限或路径问题）
+4. **修复后重启** → 先修复错误，再启动服务，重新执行步骤 1 确认通过
+
+> 经验教训：用户说「手机打不开」时，直觉反应是网络问题，但至少 1/3 的故障是服务根本没启动。先查服务，再查网络。
+
+### 常见失败原因表（补充）
+
+| 现象 | 根因 | 解决 |
+|:----|:-----|:-----|
+| `curl 127.0.0.1` 超时，进程不存在 | 服务启动失败（import error 等） | 查后台日志 `process(action='log')` → 定位具体错误 → 修复后重启 |
 
 ## 持久化原理
 

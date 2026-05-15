@@ -1,7 +1,7 @@
 ---
 name: feishu-folder-create-and-share
 description: "在飞书云盘中创建专属文件夹并共享给用户（夜雨）的标准流程——包含API调用、Token注册、权限设置和常见陷阱"
-version: 1.1.0
+version: 1.2.0
 triggers:
   - user asks to create a Feishu Drive folder / 创建飞书文件夹
   - user asks to share a folder / 分享飞书文件夹
@@ -30,6 +30,40 @@ triggers:
 | `system_docs` | 系统文档夹 | `LQx1fl0v8lB1XFdAI29czWeznVh` |
 | `hermes_generated` | Hermes生成文件夹 | `Otppfr9EelPIawdezL2csUXCnoh` |
 | `content_factory` | 内容工厂出品夹 | `OaHdfQM9flT1vudSxmFcHVRMnEg` |
+| `projects_root` | 项目 | `F8apfVtErlmfEvdPWXGcF6mZn2g` |
+
+### 系统项目文件夹规范
+
+所有**系统开发项目**（AI家庭教师、教育系统、工具应用等）的产出物（设计文档、测试案例、原型文件等）统一存放在此结构中：
+
+```
+Hermes生成文件夹 (Otppfr9EelPIawdezL2csUXCnoh)
+  └── 项目 (F8apfVtErlmfEvdPWXGcF6mZn2g)  ← 所有开发项目根目录
+       └── [系统名]                         ← 每个系统一个子文件夹
+            ├── 设计文档 v1.0
+            ├── 测试案例报告 v1.0
+            └── ...
+```
+
+**创建项目子文件夹的标准流程（与创建普通文件夹相同，只是父文件夹固定为 `projects_root`）：**
+```python
+# 1. 创建 [系统名] 文件夹
+parent_token = get_token("项目")  # 或使用 F8apfVtErlmfEvdPWXGcF6mZn2g
+project_folder_token = create_and_share("系统名称", parent_token)
+
+# 2. 在项目文件夹中创建文档
+body = json.dumps({"title": "文档名称 v1.0", "folder_token": project_folder_token}).encode()
+# ... 通过 API 创建文档，写入内容，再 share
+
+# 3. 注册到 feishu_folder_tokens.json
+with open(TOKENS_PATH) as f: registry = json.load(f)
+registry["folders"].append({
+    "name": "系统名称",
+    "token": project_folder_token,
+    "alias": "system_alias",
+    "parent": parent_token
+})
+```
 
 ## 操作流程
 
@@ -234,6 +268,28 @@ urllib.request.urlopen(req)
 `feishu_tokens.py` 模块需要从 `~/.hermes/scripts/` 目录下导入。
 ```
 from feishu_tokens import get_fei_token, get_token
+```
+
+### 5. feishu-md-writer.py 子进程空写入陷阱（⚠️ 已踩坑）
+
+**症状**：从 Python `subprocess.run()` 或 `execute_code` 中调用 `feishu-md-writer.py` 时，返回 exit code 0，stdout/stderr 为空，但飞书文档包含 0 个 child blocks（用户看到空白页面）。
+
+**根因**：`feishu-md-writer.py` 依赖 `feishu_tokens.py` 的导入，而 `feishu_tokens.py` 通过 CWD（当前工作目录）定位 `~/.hermes/scripts/`。当从 subprocess 调用时，CWD 可能是 `/tmp/` 或其它目录，导致模块导入失败但未抛出异常。
+
+**修复**：始终从终端直接运行，且先 cd 到正确的目录：
+```bash
+cd ~/.hermes/scripts && python3 feishu-md-writer.py <doc_token> <md_path>
+```
+
+**验证**：写入后通过飞书 API 检查文档的 child blocks 数量 > 0：
+```python
+req = urllib.request.Request(
+    f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_token}/blocks/{doc_token}",
+    headers=headers)
+resp = json.loads(urllib.request.urlopen(req).read())
+children = resp.get("data", {}).get("block", {}).get("children", [])
+print(f"Document has {len(children)} child blocks")
+# 应 > 0，等于 0 说明空写入
 ```
 
 ### 6. 分享 docx 文档时 type 参数错误

@@ -6,7 +6,7 @@ description: >-
   code-complete but never-started application from zero to verified running, then
   hardening it with management scripts, WSL auto-start, periodic Feishu content sync,
   cron job registration, and capability registry updates.
-version: 1.8.0
+version: 1.9.0
 ---
 
 # Flask Service Onboarding
@@ -517,6 +517,17 @@ ss -tlnp | grep <port> || echo "Port free"
 
 **Proactive prevention:** Before restarting, verify the port is actually freed. Crontab @reboot processes are especially persistent because cron restarts them on the same port if the shell wrapper isn't killed.
 
+### Step 0a – Pre-Check: Design Prototype Artifacts
+
+Before onboarding a service that was **generated from a design document** (HTML prototypes with phone-frame/pad-frame dual rendering), check for design artifacts that must be cleaned up:
+
+```bash
+# Check for design frame patterns in templates
+grep -rn 'frame-label\|phone-frame\|pad-frame\|frame-container' templates/ --include='*.html'
+```
+
+If found, apply the cleanup pattern in `design-document-production` skill (section: "⚠️ 设计转生产：清理框架伪影"). Do NOT skip this — users accessing the service from their phone will see both phone AND pad versions stacked vertically.
+
 ### Step 0b – Verify Subsystem Scope Before Acting
 
 When the user reports "X doesn't work in the Y module", **do not assume you know which subsystem they mean** — especially when there are multiple education subsystems (English/C008 grammar, Chinese/C011 handwriting, Math/C003). If you're mid-conversation and just fixed another issue, the user's next complaint may be about a **different subsystem**.
@@ -1001,3 +1012,70 @@ function revealAnswer() {
     ```
 
     **Prevention:** Before creating/modifying any student-specific data file (coins, progress, state), read `_get_student()` from the routes module (or check `data_manager.DEFAULT_STUDENT`) to determine the actual active student ID. Do NOT take the student ID from `v2/students.json` — that's the parent-facing management layer, not the session layer.
+
+33. **Function return contract mismatch — route expects wrapper, function returns raw dict**
+
+When a route handler calls a utility function expecting `{'success': bool, 'session_id': N}` but the function returns a raw database dict like `{'id': N, 'student_id': N, ...}`, the route's `result.get('success')` check returns `None` (falsy), so even successful operations are treated as failures.
+
+**Pattern:** The function was written to return a data object directly. The route was written by someone who assumed a success/error wrapper pattern.
+
+**Common symptoms:**
+- A creation function (`start_practice`, `create_session`) returns a valid dict with `id`, but the route treats it as failed
+- `flash('开始练习失败')` appears even though the session was created successfully
+- `curl` confirms the function works, but the route never reaches the redirect
+
+**Fix — align the route to the function's actual return value:**
+```python
+# ❌ Route expects a wrapper that doesn't exist
+result = start_practice(student_id, subject, mode)
+if not result.get('success'):                          # ← always falsy
+    flash(result.get('error', '开始练习失败'), 'error')
+    return redirect(url_for('student.subject'))
+session_id = result['session_id']                      # ← KeyError
+
+# ✅ Route uses the actual return shape
+result = start_practice(student_id, subject, mode)
+if not result or 'id' not in result:                   # ← checks real key
+    flash('开始练习失败', 'error')
+    return redirect(url_for('student.subject'))
+session_id = result['id']                              # ← uses real key
+```
+
+**Prevention:** When writing a route that calls a utility function, check the function's actual return statement first. Don't assume a wrapper pattern. Test independently: call the function, print `type(result)` and `result.keys()` before writing the redirect logic.
+
+34. **Missing required function argument after signature change**
+
+When a function signature changes (e.g., `get_knowledge_graph(student_id)` becomes `get_knowledge_graph(student_id, subject)`), but not all callers are updated, old callers crash with `TypeError: missing 1 required positional argument`.
+
+**Pattern:** The function was extended with a new parameter (no default), and old callers were silently left behind. Common when a function is used in multiple routes and only one was updated.
+
+**Fix options (in order of preference):**
+1. Update all callers with the new parameter
+2. Add a default value: `def func(a, b, subject='math')`
+3. Add a wrapper that provides the default
+
+**Prevention:** When changing a function signature, `grep -rn 'function_name('` across ALL route files, service files, and templates to find every caller.
+
+35. **SQL `json_each()` column reference error — `t.name` doesn't exist**
+
+When using `json_each()` to iterate over a JSON object, the virtual table has `key`, `value`, `type` columns — NOT the nested object's field names. Referencing `t.name` or `t.icon` raises `no such column`.
+
+**Fix — use `json_extract()` or Python-side filtering:**
+```sql
+-- ❌ Broken: no such column t.name
+SELECT st.*, t.name FROM student_titles st, json_each(?) as t
+
+-- ✅ Correct: extract from value JSON string
+SELECT st.*, json_extract(t.value, '$.name') as title_name
+FROM student_titles st, json_each(?) as t
+WHERE st.title_id = t.key
+```
+
+**For small data (under 100 items), Python filtering is simpler:**
+```python
+earned_ids = {r['title_id'] for r in db.execute(
+    "SELECT title_id FROM student_titles WHERE student_id=?", (sid,)
+).fetchall()}
+titles = [{'title_id': tid, 'name': info['name'], 'earned': tid in earned_ids}
+          for tid, info in TITLES.items()]
+```

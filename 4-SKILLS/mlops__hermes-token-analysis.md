@@ -1,6 +1,6 @@
 ---
 name: hermes-token-analysis
-description: 分析Hermes Agent的token消耗情况，包括数据库查询、成本计算和报告生成
+description: 分析Hermes Agent的token消耗情况，包括数据库查询、成本计算、报告生成、追踪体系搭建和异常告警
 tags:
   - hermes
   - token
@@ -8,270 +8,201 @@ tags:
   - analysis
   - billing
   - usage
+  - dashboard
 ---
 
-# Hermes Token消耗分析
+# Hermes Token消耗分析与追踪体系
 
-当用户询问Hermes Agent的token消耗、成本分析或使用统计时使用此技能。提供完整的分析工作流，包括数据库查询、日志检查和成本计算。
+Three sub-skills, invoked by task type:
 
-## 触发条件
+1. **ANALYZE** — query spending, run ad-hoc cost checks
+2. **SETUP** — build the tracking infrastructure from scratch
+3. **MAINTAIN** — handle anomalies, pricing changes, script issues
 
-- "请分析token消耗情况"
-- "查看最近的使用统计"
-- "计算一下成本"
-- "token使用量怎么样"
-- "分析大模型使用情况"
-- "检查API使用量"
+---
 
-## 分析流程
+## 1. ANALYZE — 查询分析
 
-### 1. 定位Hermes数据文件
+当用户询问当前/历史Token消耗时使用。
 
-首先确定Hermes数据目录位置，通常是`~/.hermes/`：
+### 快速查询
 
-```bash
-# 检查Hermes目录结构
-ls -la ~/.hermes/
+```sql
+-- 最近n条会话（含cost）
+SELECT id, datetime(started_at,'unixepoch') as time, source, title, billing_provider, model, input_tokens, output_tokens, ROUND(estimated_cost_usd,6) as cost FROM sessions ORDER BY started_at DESC LIMIT 20;
+
+-- 按日汇总（最近14天）
+SELECT date(datetime(started_at,'unixepoch')) as day, COUNT(*) as sessions, SUM(input_tokens+output_tokens) as total_tokens, ROUND(SUM(COALESCE(estimated_cost_usd,0)),4) as cost FROM sessions WHERE started_at > strftime('%s','now','-14 days') GROUP BY day ORDER BY day DESC;
+
+-- 按模型统计
+SELECT billing_provider, model, COUNT(*) as cnt, SUM(input_tokens+output_tokens) as total_tokens, ROUND(SUM(COALESCE(estimated_cost_usd,0)),4) as cost FROM sessions GROUP BY billing_provider, model ORDER BY cost DESC;
+
+-- 按来源统计（飞书/终端CLI/cron）
+SELECT source, COUNT(*) as sessions, SUM(input_tokens+output_tokens) as tokens, ROUND(SUM(COALESCE(estimated_cost_usd,0)),4) as cost FROM sessions WHERE source IS NOT NULL GROUP BY source ORDER BY cost DESC;
 ```
 
-关键文件：
-- 会话数据库（SQLite格式）
-- 日志文件
-- 配置文件
+### 任务分类与多维分析
 
-### 2. 数据库分析
+通过 `title` 字段对会话自动归类，支持 `re` 关键词匹配。分类规则见 `token-daily-report.py` 中的 `CATEGORIES` 字典。输出按来源（飞书/终端/cron）和任务类别（英语模块/语文模块/日常对话等）分组。
 
-使用SQLite查询会话数据：
-
-```bash
-# 查看数据库结构
-sqlite3 ~/.hermes/state.db ".tables"
-sqlite3 ~/.hermes/state.db "PRAGMA table_info(sessions);"
-
-# 查询最近会话
-sqlite3 ~/.hermes/state.db "SELECT id, datetime(started_at, 'unixepoch') as time, input_tokens, output_tokens, estimated_cost_usd, billing_provider, model FROM sessions ORDER BY started_at DESC LIMIT 10;"
-
-# 按日期统计
-sqlite3 ~/.hermes/state.db "SELECT date(datetime(started_at, 'unixepoch')) as date, COUNT(*) as sessions, SUM(input_tokens) as total_input, SUM(output_tokens) as total_output, SUM(estimated_cost_usd) as total_cost FROM sessions GROUP BY date ORDER BY date DESC;"
-```
-
-### 3. Python脚本分析
-
-对于复杂分析，使用Python脚本：
+### 成本计算
 
 ```python
-import sqlite3
-import time
-from datetime import datetime
-
-def analyze_token_usage(hours=48):
-    """分析指定时间范围内的token使用情况"""
-    db_path = "/home/openclaw/.hermes/state.db"
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # 计算时间范围
-    now = time.time()
-    time_threshold = now - (hours * 3600)
-    
-    # 查询会话数据
-    cursor.execute("""
-    SELECT id, started_at, input_tokens, output_tokens, 
-           cache_read_tokens, cache_write_tokens, reasoning_tokens,
-           estimated_cost_usd, billing_provider, model
-    FROM sessions 
-    WHERE started_at >= ?
-    ORDER BY started_at DESC
-    """, (time_threshold,))
-    
-    rows = cursor.fetchall()
-    
-    # 计算统计
-    stats = {
-        'session_count': len(rows),
-        'total_input': 0,
-        'total_output': 0,
-        'total_cache_read': 0,
-        'total_cache_write': 0,
-        'total_reasoning': 0,
-        'total_cost': 0.0,
-        'providers': {}
-    }
-    
-    for row in rows:
-        session_id, started_at, inp, out, cache_r, cache_w, reasoning, cost, provider, model = row
-        
-        stats['total_input'] += inp if inp else 0
-        stats['total_output'] += out if out else 0
-        stats['total_cache_read'] += cache_r if cache_r else 0
-        stats['total_cache_write'] += cache_w if cache_w else 0
-        stats['total_reasoning'] += reasoning if reasoning else 0
-        stats['total_cost'] += cost if cost else 0
-        
-        # 按提供商统计
-        if provider:
-            if provider not in stats['providers']:
-                stats['providers'][provider] = {
-                    'sessions': 0,
-                    'input': 0,
-                    'output': 0,
-                    'cost': 0.0
-                }
-            stats['providers'][provider]['sessions'] += 1
-            stats['providers'][provider]['input'] += inp if inp else 0
-            stats['providers'][provider]['output'] += out if out else 0
-            stats['providers'][provider]['cost'] += cost if cost else 0
-    
-    conn.close()
-    return stats
-
-# 使用示例
-stats = analyze_token_usage(48)
-print(f"会话数量: {stats['session_count']}")
-print(f"总输入token: {stats['total_input']:,}")
-print(f"总输出token: {stats['total_output']:,}")
-print(f"总成本: ${stats['total_cost']:.6f}")
+cost = (input_tokens / 1_000_000 * input_price) + (output_tokens / 1_000_000 * output_price)
 ```
 
-### 4. 日志文件检查
+定价参考见 `references/deepseek-pricing-verified.md`。
 
-补充日志分析：
+### 异常检测规则（内置于日报告）
+
+| 规则 | 阈值 | 触发动作 |
+|:-----|:-----|:---------|
+| 日Token环比突增 | >30% | 标记 + 系统脉搏告警 |
+| 单会话Token超限 | >500K | 记录上下文详情 |
+| 凌晨活跃 | 02:00-06:00 >100K | 检查cron是否失控 |
+| 成本单日超预算 | >$5/day | 推送告警到运维群 |
+
+---
+
+## 2. SETUP — 基础设施搭建
+
+当需要建立/修复 Token 追踪系统时使用。
+
+### 2.0 整体架构（四层）
+
+```
+L4 决策层: 模型路由优化 → Cron频率调优 → 预算控制
+L3 展示层: Feishu仪表盘 → 系统脉搏集成 → 运营监控周报
+L2 分析层: 日分析脚本(23:55) → 周趋势报告(周日20:00) → 异常检测
+L1 数据层: 成本补丁 → 任务标签 → Cron Token追踪
+```
+
+### 2.1 定价修复（最多执行的步骤）
+
+**根因**：`sessions` 表的模型名与 `agent/usage_pricing.py` 的定价表不匹配。例如会话存 `deepseek-v4-flash` 但定价表用 `deepseek-chat`。
+
+**修复流程**：
+1. 在 `agent/usage_pricing.py` 的 `_OFFICIAL_DOCS_PRICING` 中添加别名条目（见 `references/deepseek-pricing-alias-fix.md`）
+2. 运行回溯脚本：`cd ~/.hermes/scripts && python3 token-cost-backfill.py`
+
+### 2.2 部署自动报告
 
 ```bash
-# 查看最近活动
-tail -50 ~/.hermes/logs/agent.log
+# 步骤1: 创建 no_agent cron wrapper 脚本
+# token-daily-report.sh / token-weekly-report.sh
+# 内容: cd /home/openclaw/.hermes/scripts && exec python3 <script>.py
 
-# 搜索关键事件
-grep -i "response ready" ~/.hermes/logs/agent.log | tail -10
-grep -i "inbound message" ~/.hermes/logs/agent.log | tail -10
+# 步骤2: 注册 cron（no_agent=true，deliver=feishu:oc_xxx）
+# 日报告: 55 23 * * *
+# 周报告: 0 20 * * 0
+# 投递目标: 🔧系统运维部群 chat_id
+
+# 步骤3: 端到端验证
+cd ~/.hermes/scripts && python3 token-daily-report.py
 ```
 
-### 5. 成本计算
-
-根据实际使用推算定价：
+### 2.3 创建 Feishu 仪表盘
 
 ```python
-def calculate_pricing(input_tokens, output_tokens, total_cost):
-    """根据实际使用计算每百万token成本"""
-    if input_tokens + output_tokens == 0:
-        return None
-    
-    input_ratio = input_tokens / (input_tokens + output_tokens)
-    output_ratio = output_tokens / (input_tokens + output_tokens)
-    
-    input_cost_per_million = (total_cost * input_ratio) / (input_tokens / 1_000_000)
-    output_cost_per_million = (total_cost * output_ratio) / (output_tokens / 1_000_000)
-    
-    return {
-        'input_per_million': input_cost_per_million,
-        'output_per_million': output_cost_per_million,
-        'input_tokens': input_tokens,
-        'output_tokens': output_tokens,
-        'total_cost': total_cost
-    }
+# 1. 创建文档 → 获取 doc_token
+# 2. 写入 Markdown → feishu-md-writer.py（注意：必须从 ~/.hermes/scripts 目录运行）
+# 3. 共享给用户 open_id
+# ⚠️ 陷阱：feishu-md-writer.py 被 subprocess.run 调用时可能空写入
+#   从终端直接运行 python3 feishu-md-writer.py <doc_token> <md_path> 才可靠
 ```
 
-## 报告生成
+### 2.4 集成现有 Cron
 
-### 基本报告结构
+- **系统脉搏**（17:15）：prompt 中加入 Token 前置查询行
+- **运营监控周报**（周一06:00）：prompt 中加入 Token 分析章节
+
+### 2.5 创建项目文件夹
 
 ```
-## Token消耗分析报告
-
-**分析时间**: [当前时间]
-**时间范围**: [分析的时间范围]
-**数据来源**: Hermes会话数据库
-
-### 📊 总体统计
-- 总会话数: [数量]
-- 总输入Token: [数值] ([百分比]%)
-- 总输出Token: [数值] ([百分比]%)
-- 总Token: [数值]
-- 估算成本: $[金额]
-
-### 📅 详细统计
-[按日期或提供商的详细数据]
-
-### 💰 成本分析
-- 推算定价: 输入~$[价格]/M, 输出~$[价格]/M
-- 成本效率: [评价]
-
-### ⚠️ 注意事项
-1. [数据局限性]
-2. [时间戳问题]
-3. [缓存token说明]
-
-### 🎯 建议
-1. [优化建议1]
-2. [优化建议2]
+Hermes生成文件夹 → 项目 → Token管理体系/
+  文档: ⚡Token消耗全景仪表盘 vN
+  设计: token-tracking-system-design-vN.html
 ```
 
-## 常见问题处理
+### 2.6 部门职责分配
 
-### 1. 时间戳异常
+当用户说"由XX部负责执行"时：
+1. 确认该部门对应的 Feishu 群 chat_id
+2. 所有 cron 投递指向该群
+3. 脚本自动运行，部门只在异常时介入
+4. 日常维护：定价更新、异常响应、周报检查
 
-数据库可能显示异常时间戳（如未来日期）。处理方法：
-- 关注相对时间而非绝对时间
-- 使用`ORDER BY started_at DESC`获取最新记录
-- 在报告中说明时间戳问题
+### 2.7 模型分流（L1简单对话 → 本地模型）
 
-### 2. 数据不完整
+当用户确认仅启用 L1 路由时：
+1. 确认硬件评估结果（`references/hardware-evaluation-results.md`）
+2. 选择 qwen2.5:3b（1.9GB, 132 tok/s）作为简单对话模型
+3. 调用方式：`curl -s http://localhost:11434/api/generate -d '{"model":"qwen2.5:3b","prompt":"...","stream":false}'`
+4. 将路由规则写入 MEMORY.md 的 `=== L1模型路由规则 ===` 段
+5. 规则清晰定义触发条件（问候/确认/打卡/简单询问/3句话以内）和排除条件（编码/分析/多步/工具调用）
 
-某些时间段可能缺少数据：
-- 检查日志确认实际活动
-- 说明数据局限性
-- 建议启用详细日志记录
+⚠️ 8GB VRAM 不能同时加载两个模型。L2/3 级路由需要用户额外确认。
 
-### 3. 缓存token
+---
 
-缓存读取token通常不计入成本：
-- 区分缓存token和计费token
-- 在报告中单独说明缓存使用量
-- 缓存命中率高表示系统优化良好
+## 3. MAINTAIN — 运维与故障处理
 
-## 提供商特定信息
+### 成本数据丢失
+
+**症状**：新会话的 `estimated_cost_usd` 为 0。
+
+**排查路径**：
+1. 检查 `agent/usage_pricing.py` 中是否有该模型的定价条目
+2. 模型名精确匹配（`_lookup_official_docs_pricing` 做字符串相等）
+3. 如果有新模型上线但没有定价 → 添加别名（参考 `references/deepseek-pricing-alias-fix.md`）
+
+### 日报告不投递
+
+**检查事项**：
+1. cron job 是否启用（`cronjob list` → 看 `enabled` 状态）
+2. no_agent 脚本是否可执行（`bash token-daily-report.sh` 测试）
+3. wrapper 脚本路径是否正确（no_agent cron 不支持参数，需要 .sh 包装）
+4. 投递 chat_id 是否正确（群名变更后需要更新）
+
+### 仪表盘内容为空
+
+**根因**：`feishu-md-writer.py` 从 Python `subprocess.run` 调用时可能因工作目录错误导致空写入。
+
+**修复**：直接从终端运行 `cd ~/.hermes/scripts && python3 feishu-md-writer.py <doc_token> <md_path>`
+
+### 费用基线（部署参考）
+
+截至 2026-05-15，全部 718 会话累积成本 $30.84：
+- DeepSeek V4 Flash: 493会话, 29.9M tokens, $21.26
+- DeepSeek Reasoner: 211会话, 14.1M tokens, $9.58
+- 本地 Ollama: 3会话, 0.15M tokens, $0.00
+
+详细基线数据见 `references/hermes-token-system-baseline-20260515.md`。
+
+---
+
+## 定价参考
 
 ### DeepSeek
-- 参考定价: 输入$0.14/M, 输出$0.28/M
-- 缓存读取: 通常免费
-- 注意实际定价可能变化
 
-### 其他提供商
-- 检查配置文件中的提供商设置
-- 查询提供商最新定价
-- 考虑本地模型的零成本优势
+| 模型 | 输入 $/M | 输出 $/M |
+|:-----|:--------:|:--------:|
+| V4 Flash (= deepseek-chat) | $0.14 | $0.28 |
+| Reasoner (R1) | $0.55 | $2.19 |
 
-## 优化建议
+### 本地 Ollama（零成本）
 
-基于分析结果提供建议：
+qwen3.5-256k:latest, qwen3:8b, qwen2.5:3b, qwen3-vl:8b — 均在本地 GPU 免费运行。
 
-1. **成本优化**:
-   - 使用成本更低的模型处理简单任务
-   - 提高缓存命中率
-   - 设置成本预警阈值
+---
 
-2. **使用模式优化**:
-   - 分析高峰使用时段
-   - 识别高消耗任务类型
-   - 优化提示词减少token使用
+## References
 
-3. **监控改进**:
-   - 启用详细token跟踪
-   - 设置定期报告
-   - 实现成本预警系统
-
-## 验证与确认
-
-完成分析后：
-1. 交叉验证数据库和日志数据
-2. 检查时间范围是否正确
-3. 验证成本计算合理性
-4. 确认数据完整性
-
-## 扩展功能
-
-可选的进阶分析：
-- 趋势预测（日/周/月）
-- 异常检测算法
-- 成本效益分析
-- 多用户使用统计
+| 文件 | 内容 |
+|:-----|:------|
+| `references/deepseek-pricing-verified.md` | 完整定价表 + 计算公式 |
+| `references/deepseek-pricing-alias-fix.md` | 模型名别名修复原理与排查路径 |
+| `references/hermes-token-system-baseline-20260515.md` | 部署基线快照（数据库/消耗/趋势） |
+| `references/task-category-classifier.md` | 会话任务分类体系（CATEGORIES字典 + classify_task函数） |
+| `references/daily-conversation-optimization.md` | 日常对话优化分析（上下文税问题 + 三档优化方案） |
+| `references/hardware-evaluation-results.md` | RTX 4070 硬件评估与本地模型性能基准 |

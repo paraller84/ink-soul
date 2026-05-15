@@ -180,6 +180,8 @@ metadata:
 For corporate interview presentations (竞聘报告), see the specialized reference:
 [references/corporate-interview-presentation.md](references/corporate-interview-presentation.md)
 
+**⚠️ Note**: This skill has significant overlap with `material-production-system` (devops category). For governance reports, regulatory materials, and tool-landing presentations, that skill is more comprehensive and actively maintained.
+
 Key differences from general reports:
 - Must start with **interviewer profiling** (new bosses need quick trust)
 - Narrative chain: strategy → role understanding → advantages → proof → plan → summary
