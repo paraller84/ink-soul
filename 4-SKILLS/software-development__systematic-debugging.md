@@ -383,6 +383,122 @@ The entire `<script>` block may have a syntax error that prevents parsing. Since
    - [ ] Use template literals (backticks) for complex HTML-building strings that contain `'` or `"`
    - [ ] After fix, restart Flask app AND verify browser loads correctly (trap: template cache)
 
+### 10. Silent Rendering Collapse — Data Vanishes in the Pipeline
+
+**WHEN the user reports that the UI renders with NO interactive elements (no input fields, no choice buttons, no submit button), yet the page loads with a question text and blank space where controls should be:**
+
+The root cause is **data dropped at an intermediate pipeline layer** — the frontend template has a conditional that renders nothing when a required field is missing (`null`/`undefined`/`None`). No error appears because the conditional simply evaluates to `false`.
+
+**Unlike Ghost Grading (#6) where data is graded but never persisted, this is a full data-loss chain: data is generated, then lost at a storage/retrieval junction, and the template silently shows nothing.**
+
+**The symptom is consistent:** every question, every session, the same blank.
+
+**Diagnostic checklist:**
+
+1. **Inspect the rendered HTML directly** — don't guess from the browser's visual behavior:
+   ```html
+   <!-- Look for empty conditional blocks -->
+   <!-- Choice questions -->
+           
+   <!-- Fill questions -->
+           
+   ```
+   If `<div>` containers exist but are empty → the template conditional evaluated to `false`.
+
+2. **Identify what field the template conditional requires:**
+
+   ```jinja
+   {# pattern A: choice questions need both type AND choices #}
+   {% if question.type in ('choice',) and question.choices %}
+     ...render choices...
+   {% endif %}
+
+   {# pattern B: fill questions only need type #}
+   {% if question.type in ('fill', 'calc', 'word_problem') %}
+     ...render input...
+   {% endif %}
+   ```
+   
+   - Pattern A renders **nothing** when `question.choices` is `None`/`undefined`, even when `type='choice'` is correct.
+   - Pattern B renders **nothing** when `question.type` doesn't match any known type.
+
+3. **Trace the field backward through the pipeline:**
+   
+   ```
+   template renders {question.choices}
+        ↑
+   get_current_question() returns question dict
+        ↑
+   practice_answers table stores fields
+        ↑
+   start_practice() / create_session() inserts row
+        ↑
+   generate() builds question dict from template or DB
+        ↑
+   Template/hardcoded data (source of truth)
+   ```
+
+   At EACH junction, check: does the field survive?
+   
+   | Junction | Check |
+   |----------|-------|
+   | Source → generate() | Does `generate()` include the field in the returned dict? |
+   | generate() → storage | Does the INSERT statement include the field? |
+   | storage → retrieval | Does the SELECT return the field? |
+   | retrieval → route | Does `get_current_question()` include it in the return dict? |
+   | route → template | Does `render_template()` pass it? |
+   | template → render | Does the conditional use `and question.field` (not just `question.type`)? |
+
+4. **Common pipeline breaks:**
+
+   | Break point | Pattern | Fix |
+   |------------|---------|-----|
+   | `generate()` drops field | Dict spread creates a new dict without `answer`/`choices`: `{'type': t['type'], ...}` | Add the field: `'choices': t.get('choices'), 'answer': t.get('answer', '')` |
+   | Storage column doesn't exist | Table schema was never updated for the new field | `ALTER TABLE ... ADD COLUMN` |
+   | Storage uses new column, retrieval doesn't read it | `SELECT *` works, but the function only extracts specific keys | Add the field to the return dict |
+   | Template requires both `type` AND field | `{% if type == 'choice' and choices %}` — `choices` might be `None` while `type` is correct | Fix upstream to always provide the field, or add a fallback |
+
+5. **Form-vs-JSON submission mismatch — the companion bug**
+
+   When the UI renders correctly but submitting does nothing (page stays on the same question, or the user gets a raw JSON response):
+   
+   ```
+   Form POST (content-type: application/x-www-form-urlencoded)
+        ↓
+   Backend reads request.get_json() → None → empty dict → no data processed
+        ↓
+   Returns JSON response → browser displays raw JSON instead of redirecting
+   ```
+
+   **Fix pattern:** accept both formats in the route handler:
+   ```python
+   if request.is_json:
+       data = request.get_json() or {}
+   else:
+       data = request.form or {}
+   ```
+
+   **Prevention — add to practice engine review checklist:**
+   - [ ] For any form-answering flow, verify the backend reads `request.form` (not just `request.get_json`)
+   - [ ] Trace ONE submission: form POST → backend handler → redirect → next question render
+
+**Real-world example (AI家庭教师语文练习, 2026-05-16):**
+
+The `practice_engine.QuestionGenerator.generate()` method built template question dicts with `type`, `text`, `choices`, `difficulty`, `subject` — but **dropped `answer` (the correct answer field)**. Then `start_practice()` stored the question but the `practice_answers` table had no `answer_choices` column. `get_current_question()` returned a dict with `type='choice'` but no `choices`. The Jinja2 template required `question.type in ('choice',) and question.choices` → evaluated to `False` → rendered empty `<div>`.
+
+Additionally, the answer submission route used `request.get_json()` which returned `None` for form POSTs → no data processed → no redirect → empty response.
+
+**Fix chain:**
+```
+1. generate() → add 'answer': t.get('answer', '')
+2. practice_answers → ALTER TABLE ADD COLUMN answer_choices TEXT
+3. start_practice() → store json.dumps(choices)
+4. get_current_question() → parse and return choices
+5. answer route → accept request.form as fallback
+```
+
+**Verification:** Start a new practice session (old sessions with missing data should be cleared). The rendered HTML should show `<li>` elements for choices or `<input>` for fill, and form submission should redirect to the next question.
+
 **WHEN the user says "the stats don't match what I see" (mastered count, progress %, daily practice word selection):**
 
 The most likely root cause is **not a bad algorithm but a bad data source** — the UI reads from Data Store A while the practice engine writes to Data Store B, and they've diverged.
@@ -675,6 +791,7 @@ If you catch yourself thinking:
 ## Reference Files
 
 - `references/grading-field-mismatch.md` — Tracing the "expected answer" field across all layers (data source → backend grading → API response → frontend display). Use when a grading/practice system judges correct input as wrong.
+- `references/flask-web-debugging.md` — Flask-specific error patterns: TemplateNotFound, UndefinedError in templates, broken url_for endpoints, blueprint route conflicts, debug-mode traceback reading, and module reloader behavior. Use when debugging a Flask web app that returns 500/404 with an HTML traceback.
 
 ## Hermes Agent Integration
 

@@ -453,7 +453,114 @@ curl -s -X PUT "https://open.feishu.cn/open-apis/im/v1/chats/${CHAT_ID}" \
 
 **命名规范：** 使用 `Emoji + 四字部门名 + 部` 格式（总裁办公室例外，用「办」）
 
-### 6. 群成员增加
+### 6. 发送消息时 content 字段必须是 JSON 字符串（双重编码陷阱）
+
+**发现于：** 2026-05-15 连接测试
+
+Feishu 发送消息 API (`POST /im/v1/messages`) 的 `content` 字段要求**经过 JSON 序列化的字符串**，而不是直接传递 JSON 对象。这是一个常见的陷阱，错误码为 `9499 Bad Request`。
+
+```
+# ❌ 错误 — content 是 JSON 对象
+body = {
+    "receive_id": "oc_xxx",
+    "msg_type": "text",
+    "content": {"text": "你好"}  # ← 这是 JSON 对象，API 不接受
+}
+
+# ✅ 正确 — content 是 JSON 字符串
+body = {
+    "receive_id": "oc_xxx",
+    "msg_type": "text",
+    "content": '{"text":"你好"}'  # ← 这是 JSON 字符串（stringified JSON）
+}
+```
+
+**在 Python 中构造：**
+```python
+import json
+body = {
+    "receive_id": "oc_xxx",
+    "msg_type": "text",
+    "content": json.dumps({"text": "消息内容"})  # ← 正确：先 json.dumps 再放入 body
+}
+```
+
+**在 curl 中构造（容易出错）：**
+```bash
+# ❌ 容易出错 — shell 转义地狱
+curl -X POST ... -d '{"content":"{\"text\":\"你好\"}"}'
+
+# ✅ 安全方式 — 用 Python 构造请求体
+python3 -c "
+import json, urllib.request
+content = json.dumps({'text': '你好'})
+body = json.dumps({'receive_id': 'oc_xxx', 'msg_type': 'text', 'content': content})
+req = urllib.request.Request('...', data=body.encode(), headers={...})
+urllib.request.urlopen(req)
+"
+```
+
+**原理：** Feishu 的 API 约定 `content` 字段为 `string` 类型，其值本身是一个 JSON 字符串。当 `msg_type=text` 时，`content` 的值必须是 `{"text":"..."}` 的 JSON 序列化版本。
+
+### 7. 飞书连通性诊断流程
+
+当怀疑飞书连接有问题时，按以下层级逐级诊断：
+
+**L1 — 检查 API 认证**
+```bash
+curl -s -X POST "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal" \
+  -H "Content-Type: application/json" \
+  -d "{\"app_id\":\"$(grep FEISHU_APP_ID ~/.hermes/.env | cut -d= -f2)\",\"app_secret\":\"$(grep FEISHU_APP_SECRET ~/.hermes/.env | cut -d= -f2)\"}"
+# 预期: {"code":0,"expire":...}
+# 错误: {"code":10014,"msg":"app secret invalid"}
+```
+❗ `.env` 文件中的密钥在 `grep` 显示时可能被截断（显示为 `dR2RKx...bi1E`），但实际文件内容完整。用 `cat -A` 或 `read_file` 验证。
+
+**L2 — 检查 Drive/云盘 API**
+```bash
+# 获取 token 后测试文件夹读取
+curl -s -X POST "https://open.feishu.cn/open-apis/drive/v1/metas/batch_query" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"request_docs":[{"doc_token":"<已知文件夹token>","doc_type":"folder"}]}'
+# 预期: {"code":0,"data":{"metas":[...]}}
+```
+
+**L3 — 检查消息发送 API**
+```bash
+# 使用 Python 构造（避免 JSON 双重编码陷阱）
+python3 -c "
+import json, urllib.request
+token = 'YOUR_TOKEN'
+content = json.dumps({'text': '连通测试'})
+body = json.dumps({'receive_id': 'oc_xxx', 'msg_type': 'text', 'content': content})
+req = urllib.request.Request(
+    'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
+    data=body.encode(),
+    headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+)
+resp = json.loads(urllib.request.urlopen(req).read())
+print(f'code={resp.get(\"code\")}, message_id={resp.get(\"data\",{}).get(\"message_id\",\"?\")}')
+"
+```
+
+**L4 — 检查 Gateway WebSocket 连接**
+```bash
+# 查看网关日志确认飞书 WebSocket 连接状态
+tail -20 ~/.hermes/logs/gateway.log
+# 寻找: "Connecting to feishu..." → "[Feishu] Connected in websocket mode" → "✓ feishu connected"
+
+# 检查 gateway 进程是否真实存活（即使 systemctl 显示 inactive）
+ps aux | grep -i 'hermes_cli.*gateway' | grep -v grep
+```
+⚠️ **关键诊断陷阱**：在 watchdog 模式下，`systemctl --user status hermes-gateway.service` 可能显示 `inactive (dead)`，但网关实际上由看门狗脚本启动（PID 独立于 systemd）。**不要仅依赖 systemctl 判断网关是否存活**——用 `ps aux` 或 `pgrep` 二次确认。
+
+**L5 — 消息投递验证**
+在各群发送测试消息，确认 Bot 能接收并响应。检查：
+- 群聊中的消息是否被 Bot 接收（WebSocket 事件）
+- Bot 能否正确回复
+- 确认 `FEISHU_GROUP_POLICY=open` 是否生效（无需 @ 即可响应）
+
+### 8. 群成员增加
 如果之后需要添加更多成员，使用 `POST /open-apis/im/v1/chats/{chat_id}/members` 接口。
 
 ## 完整示例脚本

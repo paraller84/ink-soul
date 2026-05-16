@@ -1,7 +1,7 @@
 ---
 name: content-factory-workflow
 description: "C014 个人品牌内容工厂 — 周一选题→周二生成→周四/五发布的周级内容运营流水线。涵盖模块架构、cron编排、话题源管理、Feishu通知格式及常见故障恢复。"
-version: 1.5.0
+version: 1.6.0
 triggers:
 triggers:
   - user asks "run content factory" / "run C014" / "内容工厂"
@@ -16,6 +16,9 @@ triggers:
   - daily conversation (daily-conversation-practice) produces a structured insight — auto-evaluate for topic potential
   - session_search finds patterns in recent work that could make 2+ articles
   - user asks about content progress and calendar shows old/irrelevant topic names  # calendar cache staleness after rewrite
+  - user asks to publish / push / 发布 / 推送 content to platforms
+  - user asks about writing / creating drafts in 公众号/知乎/小红书 editors
+  - published articles are stuck as "drafts only" and need platform-specific fixes
 ---
 
 # 内容工厂工作流 (Content Factory)
@@ -496,7 +499,52 @@ os.unlink(tmp)
 - 创建文档后，用户可自主编辑、分享或导出为 PDF/Word
 - 文件自动存在于「Hermes生成文件 → 内容工厂出品」目录下，用户可从飞书云盘直接访问
 
-## 配置参考
+## 跨平台多载体文章生成技术
+
+当同一话题需要同时面向公众号、知乎、小红书三个平台产出内容时，采用以下适配模式：
+
+### 三平台文章结构对比
+
+| 维度 | 公众号（6-8分钟阅读） | 知乎（深阅读约10分钟） | 小红书（3分钟浏览） |
+|------|----------------------|----------------------|---------------------|
+| **叙事风格** | 第一人称故事+感悟，有温度 | 理性分析+设计原理，有深度 | 短平快+痛点共鸣，有情绪 |
+| **信息密度** | 中（观点+个人经历+金句） | 高（框架图+设计决策+技术论证） | 低（痛点→步骤→数据→收藏） |
+| **标题策略** | 悬念+数字+"我是怎么" | 核心观点+设计思路 | 结果导向+"只需X步" |
+| **开头模式** | 代入感场景 → "大多数人..." | 定义问题 → 第一性原理 → 挑战主流观点 | 对比之前vs之后 → "你是不是也..." |
+| **正文结构** | 故事线：问题→尝试→失败→突破→感悟 | 论点线：问题→方案→原理→决策→数据 | 清单线：痛点→3-5个步骤→关键认知→数据 |
+| **引语/金句** | 用 `.quote` 框独立呈现，1-2句 | 用 `.quote` 框呈现核心观点，贯穿论证 | 用 `.insight` 强调关键认知，醒目位置 |
+| **数据呈现** | 嵌入式描述 + 大数字突出 | 表格/框架图对比 | 大数字卡片 + 简短标注 |
+| **结尾** | 感悟+下篇预告 | 系统方法论总结+系列回顾 | 收藏引导+系列索引 |
+
+### 生成工作流
+
+```
+话题确认
+  ↓
+① 先写公众号版（最完整，故事线+数据+感悟全包括）
+  ↓
+② 基于公众号版提炼知乎版（增加分析深度，补充设计决策依据）
+  ↓
+③ 基于公众号版压缩小红书版（提取痛点→步骤→数据，去除全部叙事铺陈）
+```
+
+**要点**：
+- **先写最完整版本（公众号）**，再推导其他两个版本，避免三篇割裂
+- **知乎版本不要重复公众号的故事段落**——知乎读者要的是"为什么这么设计"，不是"我有多辛苦"
+- **小红书版本必须去掉所有叙事性连接**——"我花了半年时间..."→直接变成"四步：1.录音管道 2.邮件分类…"，纯干货
+- 三者共享同一套核心数据和方法论框架，但呈现方式、语言风格、段落结构完全不同
+
+### 实践参考：个人任务闭环体系系列（2026-05-16）
+
+此系列4篇×3平台=12篇HTML的生产过程可作参考：
+- 篇03（分类过滤三篇）被评为核心篇目，公众号版10489字节，知乎版9502字节，小红书版5812字节
+- 篇01（总纲篇）的小红书版压缩到8169字节，大量使用emoji+步骤卡替代段落
+- 所有文件使用内联CSS暗色科技风，每篇独立完整HTML
+
+### 参考文件
+
+- `references/multi-platform-writing-patterns.md` — 跨平台差异化写作模式
+- `references/publishing-pipeline-workflow.md` — 发布管线实操指南（内容格式转换、Node.js Playwright、cookie管理、系列发布节奏）
 
 ```yaml
 # ~/.hermes/scripts/content-factory/config.yaml
@@ -527,6 +575,115 @@ notifications:
   platform: "feishu"
   chat_id: "oc_575e28286dba895bd619f911399b7d01"
 ```
+
+## 发布阶段实操工作流
+
+> 内容工厂的「周四/周五发布」阶段不只是发提醒——需要真实将文章投递到三个平台。
+
+### 当前发布管线现状
+
+| 组件 | 状态 | 说明 |
+|:----|:----:|:------|
+| `publisher_base.py` | ⚠️ 缺 `_ensure_browser()` 方法 | 三个子类都引用了此方法但未在基类定义 |
+| `publisher_wechat.py` | ⚠️ 需要扫码登录 | 首次需用户手动扫码，后续靠cookie |
+| `publisher_zhihu.py` | ⚠️ 同上 | 支持cookie恢复 |
+| `publisher_xiaohongshu.py` | ⚠️ 反爬严格 | 最终发布建议手动操作 |
+| Python playwright | ❌ 不可安装 | WSL网络限制导致pip超时 |
+| **Node.js Playwright** | **✅ 可用** | Hermes agent的node_modules中自带 |
+
+### 发布流程（当需要执行发布时）
+
+#### 前提：首次登录（用户需操作一次）
+
+各平台发布需要用户的登录态。首次运行需用户在自己桌面浏览器（Windows端）手动登录并导出cookie。
+
+**推荐流程**：
+1. 用户在Windows Chrome访问各平台并登录（微信公众号 mp.weixin.qq.com / 知乎 zhuanlan.zhihu.com / 小红书 creator.xiaohongshu.com）
+2. 使用Chrome扩展（如"EditThisCookie"或"Cookie-Editor"）导出JSON格式cookie
+3. 将cookie文件传入WSL，放置在 `~/.hermes/cache/{platform}_cookies.json`
+4. 后续Agent可加载cookie，用headless Playwright自动创建草稿
+
+#### 第一步：内容格式转换
+
+HTML文章（含内联CSS）不能直接粘贴到平台编辑器。必须提取纯净内容：
+
+```python
+def html_to_platform_content(html_path):
+    """从暗色科技风HTML中提取纯文本/Markdown"""
+    import re
+    with open(html_path) as f:
+        html = f.read()
+    # 提取标题
+    title = re.search(r'<title>(.*?)</title>', html).group(1)
+    # 去除样式和脚本
+    text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+    # 提取正文（替换HTML标签为纯文本标记）
+    text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1', text)
+    text = re.sub(r'<br\s*/?>', '\n', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    # 清理多余空行
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return title.strip(), text.strip()
+```
+
+**不同平台的编辑器格式限制**：
+- **微信公众号**：支持基本的HTML标签（p、h2、h3、ul/ol、strong、em），不支持内联CSS、不支持iframe。最好提前转为纯文本，用飞书/壹伴等工具排版后发布。
+- **知乎专栏**：支持Markdown（#标题、列表、代码块、引用），不支持内联CSS。可直接粘贴Markdown。
+- **小红书创作者中心**：支持纯文本+emoji，不支持富文本格式。只能粘贴纯文本+换行。
+
+**信息图处理**：HTML中的CSS绘制的流程图/对比卡无法在任意平台编辑器中保留。解决方案：
+- 用浏览器截图工具将信息图转为PNG
+- 在平台编辑器中以图片形式插入
+- 或直接去掉视觉元素，用文字+emoji替代（适合小红书）
+
+#### 第二步：使用Playwright创建草稿
+
+由于Python playwright不可安装（WSL网络限制），使用Hermes agent自带的Node.js Playwright：
+
+```javascript
+// Node.js 发布脚本模板
+const { chromium } = require('playwright');
+const fs = require('fs');
+const path = require('path');
+
+async function createDraft(platform, title, content) {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  
+  // 加载已保存的cookie
+  const cookiePath = path.join(process.env.HOME, '.hermes/cache', `${platform}_cookies.json`);
+  if (fs.existsSync(cookiePath)) {
+    const cookies = JSON.parse(fs.readFileSync(cookiePath));
+    await context.addCookies(cookies);
+  }
+  
+  // 各平台登录/编辑页URL
+  const urls = {
+    wechat: 'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=10&createType=0',
+    zhihu: 'https://zhuanlan.zhihu.com/write',
+    xiaohongshu: 'https://creator.xiaohongshu.com/creator/notes/new',
+  };
+  
+  await page.goto(urls[platform], { timeout: 30000 });
+  // 检查是否已登录，需要时引导用户扫码
+  // ...填充内容、保存草稿...
+  
+  await browser.close();
+}
+```
+
+**首次运行的障碍**：在WSL headless环境下，微信/知乎的扫码登录无法直接完成。首次必须由用户在桌面浏览器完成登录后导出cookie。
+
+### 发布管线已知问题
+
+| 问题 | 根因 | 状态 |
+|:----|:-----|:-----|
+| `self._ensure_browser()` 未定义 | publisher_base.py缺少浏览器启动方法 | ⚠️ 待修复 |
+| Python playwright不可安装 | WSL网络限制，pip超时 | - (改用Node.js) |
+| cookie首次需要手动导出 | headless模式无法扫码 | 需用户配合 |
+| 各平台反爬策略 | 知乎较宽松、小红书严格 | 知乎可自动发布，微信/小红书建议手动 |
 
 ## 陷阱与注意事项
 

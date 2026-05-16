@@ -229,6 +229,7 @@ mount | grep " /mnt/g "                              # DrvFs 挂载状态
 | 子系统 | 检查项 | 命令/路径 |
 |--------|--------|----------|
 | 教育系统统合 | 4 端点可用性 | curl http://localhost:5002/* |
+| AI家庭教师 | 入口+三科练习+拍照 | 详见 references/ai-family-tutor-health-check.md |
 | 数学 C003 | 日志最近运行 | tail ~/edu-hub/logs/c003-activity.log |
 | 英语 C008 | 数据大小 | du -sh ~/edu-hub/english/data/ |
 | 质量门禁 C015 | 上次扫描结果 | tail ~/edu-hub/quality_gate/quality_gate.log |

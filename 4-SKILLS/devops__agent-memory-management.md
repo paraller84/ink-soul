@@ -227,6 +227,10 @@ memory:
 
 详见 `references/memory-tencentdb-setup.md`（TencentDB 完整安装指南）。如需其他提供者的安装指南，请按同一格式补充参考文件。
 
+## 认知架构参考
+
+`references/cognitive-architecture-design-2026-05-17.md` — 记录了完整的Hermes Agent认知架构设计方案（三层可信度、置信度公式、6通识领域分类、双轨并行机制、决策追踪日志Schema），供未来实施时参考。
+
 ## 已知陷阱
 
 - `memory(action="add")` 总是追加新条目，不会覆盖旧的。需要先 `remove` 再 `add` 来实现更新

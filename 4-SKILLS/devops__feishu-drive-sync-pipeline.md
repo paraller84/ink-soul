@@ -37,6 +37,33 @@ Key APIs:
 
 Script path must be **bare filename** relative to `~/.hermes/scripts/`. No absolute paths.
 
+## ⚠️ KNOWN ISSUE: Auto-Tagging Falls Back to "exam-paper"
+
+The sync script in `feishu-wiki-sync.py` auto-tags documents by name suffix:
+- `_答案` → tags: `answer-key`, `exam-answer`
+- `_试题` → tags: `exam-questions`
+- **Anything else** → fallback tag: `exam-paper`
+
+**Problem**: For the "网页版LLM讨论记录" folder, documents like task dashboards, project trackers, and daily logs get mis-tagged as `exam-paper`. This is misleading for downstream Wiki indexing and search.
+
+**Fix**: Update the sync script to detect document topic from content or use folder-aware tagging:
+
+```python
+# In feishu-wiki-sync.py, replace the fallback section:
+if doc_name.endswith("_答案"):
+    doc_tags.append("answer-key")
+elif doc_name.endswith("_试题"):
+    doc_tags.append("exam-questions")
+elif "仪表盘" in doc_name or "dashboard" in doc_name.lower():
+    doc_tags.append("project-dashboard")  # folder-aware: LLM discussion folder
+elif "复盘" in doc_name or "日报" in doc_name or "周报" in doc_name:
+    doc_tags.append("daily-summary")
+else:
+    doc_tags.append("feishu-raw")  # neutral fallback instead of exam-paper
+```
+
+Alternatively, set a per-folder default tag in the `FOLDERS` config so each folder has appropriate tagging. For now the agent must manually correct tags when writing the Wiki page.
+
 ## ⚠️ KNOWN BUG (FIXED 2026-05-01): Pipe Table Blocks Displaced Backwards
 
 ### History

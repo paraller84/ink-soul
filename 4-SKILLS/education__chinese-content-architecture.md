@@ -7,6 +7,10 @@ tags: [chinese, c011, content-model, import-pipeline, ocr, data-model, eduhub]
 
 # 语文模块内容体系设计
 
+> ⚠️ **适用范围**：本技能仅适用于 **Edu-Hub C011 语文模块** (`~/edu-hub/chinese_v3/`)，使用 **content.json** 文件存储。
+> AI家庭教师项目 (`~/edu-hub/ai-family-tutor/`) 使用 SQLite 数据库，数据模型见 `ai-family-tutor-data-architecture` 技能。
+> 两套系统概念（recognition_type、内容类型分类、出题过滤逻辑）有重叠，但实现细节不同。
+
 ## 定位
 
 C011语文模块（Edu-Hub）的内容层设计规范。覆盖从家长导入到学生练习的完整链路，确保提示词输出、数据存储、出题引擎三者对齐。

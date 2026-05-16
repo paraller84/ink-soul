@@ -384,6 +384,14 @@ PHASE 3 — Post-restart recovery (watchdog handles it)
   adding separate systemd services for them will cause duplication.
 - **Port forwarding lost on WSL restart**: WSL IP changes after reboot. Must
   re-apply Windows port forwarding rules (see `wsl-port-forwarding` skill).
+- **Diagnostic trap: systemctl shows inactive but gateway is running under watchdog**:
+  When the gateway is started by the watchdog script (not by systemd), `systemctl
+  --user status hermes-gateway.service` shows `inactive (dead)`, but the gateway
+  process may actually be alive under a PID managed by the watchdog. This happens
+  because the watchdog starts the gateway directly via `nohup` rather than through
+  systemd. **Always cross-check with `ps aux | grep 'hermes_cli.*gateway'` (or
+  `pgrep -f 'hermes_cli.*gateway'`) before concluding the gateway is down.**
+  Systemctl status alone is not authoritative when the watchdog pattern is in use.
 - **Self-restart pre-flight is the ONLY check you can run**: Once restart
   begins, your process is gone. Do not attempt post-restart verification from
   the agent itself — delegate to the watchdog.

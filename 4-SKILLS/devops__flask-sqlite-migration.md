@@ -426,6 +426,76 @@ if bi_row:
 
 **预防**：在 Step 3 实现阶段检查所有 SQLite 写入代码，确认 SQLite 查询结果变量名与函数已有的业务变量名不重复。详见 `references/dual-write-phase1-pattern.md`。
 
+### T9: Flask `g` 上下文 — 独立脚本中 get_db() 失败
+
+**发现场景**：独立运行的 Python 脚本（如出题管线 `agent_pipeline.py`）调用 `from db import get_db` 后执行 `get_db()`，抛出 `RuntimeError: Working outside of application context`。
+
+**根因**：`db.py` 使用 Flask 的 `g` 对象（`from flask import g`）存储数据库连接。`g` 仅在 Flask 请求/应用上下文中可用，独立脚本中没有。
+
+**两种连接模式对比**：
+
+| 模式 | 适用场景 | 独立脚本支持 |
+|:-----|:---------|:-------------|
+| `threading.local()` + 自定义单例 | 自定义数据层 | ✅ 开箱可用 |
+| Flask `g` 对象 | Flask Blueprint 模式 | ❌ 需要 app_context() |
+
+**修复**（选择一种）：
+
+**方案A（推荐——让脚本包装上下文）**——适用于已经使用 Flask `g` 的现有项目：
+```python
+from app import create_app
+app = create_app()
+with app.app_context():
+    db = get_db()
+    # 所有数据库操作放在这里
+```
+
+**方案B（不推荐——改造 db.py）**——修改现有 db.py 支持双模式：
+```python
+from flask import g
+import threading
+
+_local = threading.local()
+
+def get_db():
+    try:
+        # 优先使用 Flask g（web上下文）
+        if 'tutor_db' in g:
+            return g.tutor_db
+    except RuntimeError:
+        pass  # 不在Flask上下文中
+    
+    # 回退到线程本地存储（独立脚本）
+    if not hasattr(_local, 'conn') or _local.conn is None:
+        _local.conn = _create_connection()
+    return _local.conn
+```
+
+**预防**：在新项目中，如果预见到需要独立脚本操作数据库，从一开始就使用 `threading.local()` 模式而非 Flask `g` 模式。
+
+**发现场景**：独立运行的 SQLite 脚本（migration、seed、debug）执行了 INSERT 但忘记调用 `db.commit()`。脚本打印了"已创建N条记录"，但脚本退出后数据全部消失。
+
+**根因**：Python sqlite3 默认不开启自动提交（autocommit=False，除了某些特定执行模式）。不在 `with` 块或显式调用 `commit()` 时，INSERT/UPDATE/DELETE 在事务中执行，脚本结束未提交则自动回滚。
+
+**诊断方法**：
+```bash
+sqlite3 path/to/db.db "SELECT COUNT(*) FROM target_table;"
+# 返回 0，但脚本打印了"创建N条" → 确认缺少 commit
+```
+
+**修复**：
+```python
+# 在所有 INSERT/UPDATE/DELETE 后统一调用
+db.commit()
+print("DONE")  # commit 后再确保
+
+# 或使用 with 上下文（自动提交/回滚）
+with db:
+    db.execute("INSERT INTO ...", (...))
+```
+
+**预防**：写完数据操作后 `db.commit()` 再打印完成信息。先用 `sqlite3` 命令行验证数据可见再确认。
+
 ### T5: 纯 `python3 -c` 测试 vs 运行时路径不同
 
 迁移脚本的 import 路径依赖于 `sys.path` 包含项目根目录。从 `edu-hub-manager.py`（`scripts/` 目录）调用时 CWD 不同。始终在 `edu-hub/` 目录或用 `__file__` 推导。
