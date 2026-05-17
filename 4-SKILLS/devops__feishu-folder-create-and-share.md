@@ -203,6 +203,28 @@ file_token = resp['data']['file_token']
 | JavaScript | `text/javascript` |
 | CSS | `text/css` |
 
+#### 🆘 替代方案：用 curl 上传（推荐——更可靠）
+
+当 Python MIMEMultipart 构建返回 1061002 "params error" 时，改用 `curl -F` 上传，它能正确处理 multipart boundary 和文件大小计算：
+
+```bash
+# 获取飞书 token
+FEI_TOKEN=$(cd ~/.hermes/scripts && python3 -c "from feishu_tokens import get_fei_token; print(get_fei_token())")
+
+# 上传文件到指定文件夹
+curl -s -X POST 'https://open.feishu.cn/open-apis/drive/v1/files/upload_all' \
+  -H "Authorization: Bearer $FEI_TOKEN" \
+  -F "file_name=文档名称_v1.html" \
+  -F "parent_type=explorer" \
+  -F "parent_node=<FOLDER_TOKEN>" \
+  -F "size=$(stat -c%s /path/to/file.html)" \
+  -F "file=@/path/to/file.html;type=text/html"
+```
+
+**为什么 curl 更可靠**：`curl -F` 自动处理 boundary 字符串生成、`Content-Disposition` 行尾符（\\r\\n）、文件大小与实际 body 长度的一致性。而 Python MIMEMultipart 在这些细节上可能存在不一致导致 1061002 错误。
+
+**上传后立即分享给用户**（见 Step 3）
+
 ### Step 3: 共享给用户
 
 共享的 API 参数因对象类型不同而异：

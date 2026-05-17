@@ -159,11 +159,21 @@ r = requests.delete(
 2. **block payload 格式**：每个块必须包含 `block_type` 和对应的类型 key
    （type=2 → `text`，type=3 → `heading1`，type=4 → `heading2` 等）。
 3. **多个块一次性提交**：children 数组支持一次性创建多个块，减少 API 调用次数。
+   已验证：24 个块在单次 API 调用中一次性添加成功。
 4. **Python True/False**：在 Python 代码中写 JSON 字面量时，必须用 `True`/`False`
    （大写），不能用 `true`/`false`（JS 风格）。
 5. **`index` 参数**：`index: 0` 表示追加到末尾。也可以指定位置插入。
 6. **文档 token 漂移**：飞书文件夹 token 会随操作漂移，使用前应通过列表 API 重新获取。
+7. **`upload_all` 对 HTML 文件不可靠**：`drive/v1/files/upload_all` 上传 .html 文件返回
+   成功（code=0+file_token），但文件不会出现在 drive 文件列表中（metas API 返回 404）。
+   ❌ 不要用 upload_all 上传 HTML 报告。✅ 应创建 docx 文档并通过 blocks API 填充内容。
+8. **中文内联字符串语法陷阱**：在 Python 的 `execute_code` 或 inline 代码块中，
+   包含中文引号、特殊字符（如 `·`、`「」`）的字符串字面量可能导致 SyntaxError
+   （"closing parenthesis ']' does not match opening parenthesis '{'"）。
+   **缓解方案**：将 JSON/payload 写入独立文件（`write_file`→磁盘），再从文件读取，
+   而非在 inline 代码中直接构造字面量。参考 `references/chinese-inline-string-workaround.md`。
 
 ## 八、参考文件
 
-- `references/docx-api-quirks-session-20260516.md` — 本次会话的具体调试记录
+- `references/docx-api-quirks-session-20260516.md` — docx API 调试记录
+- `references/chinese-inline-string-workaround.md` — 中文内联字符串的语法规避方案

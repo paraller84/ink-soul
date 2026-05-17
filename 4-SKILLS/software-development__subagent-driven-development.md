@@ -1,7 +1,7 @@
 ---
 name: subagent-driven-development
-description: "Execute plans via delegate_task subagents (2-stage review)."
-version: 1.1.0
+description: "Execute plans via delegate_task subagents (2-stage review + blinded spec compliance + 2-round escalation + Aider integration). v1.3.0: Aider as implementation engine for coding subagents."
+version: 1.3.0
 author: Hermes Agent (adapted from obra/superpowers)
 license: MIT
 platforms: [linux, macos, windows]
@@ -18,6 +18,34 @@ metadata:
 Execute implementation plans by dispatching fresh subagents per task with systematic two-stage review.
 
 **Core principle:** Fresh subagent per task + two-stage review (spec then quality) = high quality, fast iteration.
+
+**Critical insight (v1.2.0):** The same agent cannot effectively review its own work — confirmation bias causes it to rationalize micro-deviations with "I designed it this way" reasoning. The solution is role separation: the reviewer subagent must **never see the full design document**, only the acceptance criteria checklist. This eliminates the "I know what this was supposed to do" shortcut that suppresses discrepancy detection.
+
+**2-round escalation rule (v1.2.0):** Any review FAIL gets exactly 2 fix-review cycles. If the 2nd review also FAILs, the issue **escalates to Hermes** (the orchestrator agent) — it does NOT loop indefinitely. This prevents token waste on tasks where the acceptance criteria are flawed or the subagent is not a good fit.
+
+## The Confirmation Bias Trap
+
+### Why it matters
+
+When the same agent designs and implements, then reviews its own output:
+
+```
+Designer brain: "I chose this route structure for a good reason"
+  → Reviewer brain (same agent): "That reason still makes sense"
+    → Deviation missed
+```
+
+This is not a bug in the agent — it's a **structural problem** with self-review. The agent can't "unknow" the design rationale.
+
+### The workaround: blinded reviewers
+
+The reviewer subagent **must not** receive the full design document. It receives only:
+
+1. **Atomic acceptance criteria** — binary PASS/FAIL conditions
+2. **File paths** to check
+3. **Request/response schemas** — exact field names and types
+
+Everything else (design rationale, alternative approaches considered, trade-offs made) is **withheld from the reviewer**. This forces the reviewer to do a purely mechanical compliance check rather than an interpretive one.
 
 ## When to Use
 
@@ -89,34 +117,43 @@ delegate_task(
 )
 ```
 
-#### Step 2: Dispatch Spec Compliance Reviewer
+#### Step 2: Dispatch Spec Compliance Reviewer (Blinded)
 
-After the implementer completes, verify against the original spec:
+Dispatch a reviewer subagent that has **no access to the original design document** — only the acceptance criteria.
+
+Critical difference from a normal review:
+
+| Aspect | Current practice | v1.2.0 improvement |
+|:-------|:-----------------|:--------------------|
+| Reviewer's context | Full task spec + design doc | **Only acceptance criteria** + file paths |
+| Review criteria | "Does this match the spec?" | **Only binary checks** from criteria list |
+| Judgment | Interpretive ("close enough") | Mechanical ("this field exists or not") |
+| Deviation tolerance | ~15% (can rationalize minor gaps) | ~0% (must hit every check) |
 
 ```python
 delegate_task(
-    goal="Review if implementation matches the spec from the plan",
+    goal="Verify acceptance criteria are met — DO NOT read the design document",
     context="""
-    ORIGINAL TASK SPEC:
-    - Create src/models/user.py with User class
-    - Fields: email (str), password_hash (str)
-    - Use bcrypt for password hashing
-    - Include __repr__
+    ACCEPTANCE CRITERIA (only source of truth for review):
+    [ ] File exists: src/models/user.py
+    [ ] Class User has fields: email (str), password_hash (str)
+    [ ] email field has UNIQUE constraint
+    [ ] __repr__ method returns "<User: email>"
+    [ ] Tests in tests/models/test_user.py: 5+ test cases
+    [ ] All tests pass: pytest tests/models/test_user.py -v
 
-    CHECK:
-    - [ ] All requirements from spec implemented?
-    - [ ] File paths match spec?
-    - [ ] Function signatures match spec?
-    - [ ] Behavior matches expected?
-    - [ ] Nothing extra added (no scope creep)?
+    ⚠️ CRITICAL RULE: Do not apply "this seems reasonable" judgment.
+    ⚠️ CRITICAL RULE: Do not consider what the "intended behavior" was.
+    ⚠️ CRITICAL RULE: Check each criterion as a binary YES/NO.
 
-    OUTPUT: PASS or list of specific spec gaps to fix.
+    OUTPUT: PASS or list of FAIL criteria with specific evidence.
     """,
     toolsets=['file']
 )
 ```
 
 **If spec issues found:** Fix gaps, then re-run spec review. Continue only when spec-compliant.
+**2-round escalation:** If spec review FAILs twice, escalate to Hermes. Do not proceed to coding until spec is compliant.
 
 #### Step 3: Dispatch Code Quality Reviewer
 
@@ -215,6 +252,12 @@ git add -A && git commit -m "feat: complete [feature name] implementation"
 - Let implementer self-review replace actual review (both are needed)
 - **Start code quality review before spec compliance is PASS** (wrong order)
 - Move to next task while either review has open issues
+- **Give the spec reviewer the full design document** (confirmation bias — reviewer will rationalize deviations)
+- **Code for more than 30 minutes without an intermediate checkpoint** (long feedback loops compound micro-deviations)
+- **Assume a single subagent can handle a task that spans multiple files with cross-cutting changes** (split into smaller tasks instead)
+- **Loop review cycles more than 2 rounds without escalation** (token waste + diminishing returns)
+- **Accept a partial PASS from the spec reviewer** — every criterion must pass, no "close enough"
+- **Skip the escalation step and continue coding** after 2 failed reviews (broken acceptance criteria produce broken code)
 
 ## Handling Issues
 
@@ -226,10 +269,11 @@ git add -A && git commit -m "feat: complete [feature name] implementation"
 
 ### If Reviewer Finds Issues
 
-- Implementer subagent (or a new one) fixes them
-- Reviewer reviews again
-- Repeat until approved
-- Don't skip the re-review
+1. Fix the issues (same or new subagent)
+2. Reviewer reviews again
+3. **If review FAILs again: this is Round 2. Fix and re-review.**
+4. **If Round 2 also FAILs: STOP. Escalate to Hermes (orchestrator). Do NOT attempt Round 3.**
+5. The orchestrator (Hermes) determines: are the acceptance criteria wrong? Is the subagent not suited? Should the task be done differently?
 
 ### If Subagent Fails a Task
 
@@ -281,6 +325,123 @@ If a subagent encounters bugs during implementation:
 2. Find root cause before fixing
 3. Write regression test
 4. Resume implementation
+
+### With Aider (v1.3.0)
+
+Aider (`aider-chat`) can serve as the implementation engine for the coding subAgent, replacing a manually-directed sequence of `write_file` + `terminal` calls. Aider provides:
+
+- **Repo map** — Aider builds an index of the repo structure (`repo-map`) and uses it to identify which files need changes, making cross-file edits much more efficient than manual navigation.
+- **Multi-file awareness** — A single `aider --message "implement X"` can create/modify multiple files in one pass, with Aider reasoning about import patterns and cross-file dependencies.
+- **Auto git commits** — Aider commits after each change, creating a clean audit trail.
+- **Map-refactor** — `--map-refactor` flag enables refactoring-aware edits where Aider analyzes dependency graphs before making changes.
+- **Lint self-healing** — Aider automatically runs linters on modified files and fixes issues before committing.
+
+**When to use Aider vs manual subAgent:**
+
+| Factor | Manual subAgent | Aider-based subAgent |
+|:-------|:----------------|:---------------------|
+| Best for | Small single-file changes (Tier 2/3) | Multi-file features (Tier 0/1) |
+| Setup cost | None | Needs venv + wrapper + model config |
+| Cross-file awareness | Limited to what context provides | Full repo map (finds patterns across files) |
+| Token efficiency | Higher per-call, but more calls | Lower per-call, but fewer calls |
+| Git integration | Manual commit | Auto-commit every change |
+| Model flexibility | Uses same model as orchestrator | Can use different model (DeepSeek for code, Ollama for simple) |
+
+**Three-phase Aider integration flow:**
+
+```
+Phase 1 — Hermes prepares                              Aider role
+  ├─ Initialize git repo (Aider requires git)            (passive)
+  ├─ Write acceptance criteria file                      │
+  ├─ Write .aider.conf.yml (model, flags, excludes)      │
+  └─ Set up wrapper script (sources .env for API keys)   │
+                                                         ▼
+Phase 2 — SubAgent invokes Aider                    Aider active
+  ├─ SubAgent calls: `aider-wrapper --message "..."`    │
+  ├─ Aider reads repo, analyzes, edits files, commits   │
+  └─ SubAgent verifies: tests pass + exit code 0        │
+                                                         ▼
+Phase 3 — Blind review SubAgent                    Hermes active
+  ├─ Review SubAgent (D-Des gate): acceptance criteria  │
+  │  vs code — same blinded protocol as manual flow     │
+  └─ PASS → proceed / FAIL → 2-round fix escalation     │
+```
+
+**Model routing for Aider:**
+
+| Model | When | Config |
+|:------|:-----|:-------|
+| `deepseek/deepseek-chat` | Main coding (complex refactoring, features) | `DEEPSEEK_API_KEY` in env |
+| `ollama/qwen2.5:3b` | Simple edits, quick fixes | `OLLAMA_API_BASE=http://localhost:11434` |
+| `deepseek/deepseek-reasoner` | Architecture decisions, design reviews | `DEEPSEEK_API_KEY` in env |
+
+**Wrapper script pattern** (store at `~/.local/bin/aider-wrapper`):
+
+```bash
+#!/bin/bash
+# Aider wrapper — sources environment variables then runs aider from venv
+set -e
+if [ -f "$HOME/.hermes/.env" ]; then
+    source "$HOME/.hermes/.env"
+fi
+export OLLAMA_API_BASE="${OLLAMA_API_BASE:-http://localhost:11434}"
+exec ~/.aider-venv/bin/aider "$@"
+```
+
+**Aider configuration file** (`.aider.conf.yml` at repo root):
+
+```yaml
+model: deepseek/deepseek-chat
+yes: true
+auto-commits: true
+dirty-commits: true
+git: true
+map-refactor: true
+lint: true
+show-model-warnings: false
+suggest-shell-commands: false
+cache-prompts: true
+analytics: false
+```
+
+**SubAgent dispatch template using Aider:**
+
+```python
+delegate_task(
+    goal=f"""
+    1. Run: cd {workdir} && aider-wrapper --message "Implement feature: {feature_desc}"
+    2. Verify tests pass: cd {workdir} && pytest tests/ -q
+    3. Check git log: cd {workdir} && git log --oneline -3
+    4. Report: commit SHAs, files changed, test results
+    """,
+    context=f"""
+    PROJECT: {project_name}
+    AIDER WRAPPER: ~/.local/bin/aider-wrapper
+    AIDER CONFIG: {workdir}/.aider.conf.yml
+    MODEL: deepseek/deepseek-chat (main), ollama/qwen2.5:3b (simple tasks)
+    GIT: already initialized at {workdir}
+
+    ACCEPTANCE CRITERIA:
+    [paste criteria from docs/acceptance-criteria-[task].md]
+
+    CRITICAL: Aider will handle file changes. Do NOT use write_file/terminal to
+    make code changes. Only use terminal to run aider-wrapper and verify results.
+    """,
+    toolsets=['terminal', 'file']
+)
+```
+
+**Aider-specific pitfalls:**
+
+- **Aider REQUIRES a git repo** — it refuses to run outside one. Use `mktemp -d && git init` for scratch work, or init if missing.
+- **Pipeline pattern** — Aider commits incrementally and you may want to squash before final review. Use `git reset --soft HEAD~n` or let Aider's auto-commits stand.
+- **`read_file()` line numbers** — When patching code that was written by Aider, remember that `read_file()` output is prefixed with `NUM|` line numbers. To get raw content for Aider, use `cat` via terminal.
+- **Large dependency** — `aider-chat` is ~248MB installed (depends on scipy, litellm, numpy, etc.). Installation takes 3-5 minutes even on fast mirrors. Use a dedicated venv (`~/.aider-venv`).
+- **WSL network** — In China, default PyPI may be slow. Use Aliyun mirror: `pip install -i https://mirrors.aliyun.com/pypi/simple/ aider-chat`. Setup `PIP_INDEX_URL` env var for convenience.
+- **Model mismatch** — Aider's model IDs follow LiteLLM conventions, not provider-native. `deepseek/deepseek-chat` maps to DeepSeek V4 Flash; `ollama/qwen2.5:3b` to local Ollama.
+- **Don't pipe to aider** — Unlike Codex CLI which hangs on stdin capture, Aider accepts file-based message input via `--message` or `--file`. Always use `--message "prompt"` not stdin pipe.
+- **Over-aggressive editing** — Aider's repo map may cause it to modify files it shouldn't. Use `.aiderignore` to exclude generated/config files, or constrain with `--read` (read-only files).
+- **Review still needed** — Aider produces code that compiles and passes its own tests, but the blinded D-Des review is still required. Aider's code is not exempt from the 2-round escalation protocol.
 
 ## Example Workflow
 
@@ -348,5 +509,7 @@ When the orchestration involves significant context usage, long review loops, or
 
 - **`references/context-budget-discipline.md`** — Four-tier context degradation model (PEAK / GOOD / DEGRADING / POOR), read-depth rules that scale with context window size, and early warning signs of silent degradation. Load when a run will clearly consume significant context (multi-phase plans, many subagents, large artifacts).
 - **`references/gates-taxonomy.md`** — The four canonical gate types (Pre-flight, Revision, Escalation, Abort) with behavior, recovery, and examples. Load when designing or reviewing any workflow that has validation checkpoints — use the vocabulary explicitly so each gate has defined entry, failure behavior, and resumption rules.
+- **`references/design-delivery-gap-analysis.md`** — Root cause analysis of the "design spec → delivered code" deviation problem. Contains the 7 root causes, compounding effect model, confirmation bias analysis, and multi-agent pattern proposal. Load when designing review workflows or debugging persistent design-delivery gaps.
+- **`references/aider-integration-setup.md`** — Full Aider setup guide: installation (with China mirror), wrapper script, model routing, `.aider.conf.yml`, usage patterns (single-shot, file-based, constrained edit), subagent dispatch templates, and remediation for common pitfalls. Load when implementing Aider as a coding sub-agent for Tier 0/1 features.
 
 Both references adapted from gsd-build/get-shit-done (MIT © 2025 Lex Christopherson).

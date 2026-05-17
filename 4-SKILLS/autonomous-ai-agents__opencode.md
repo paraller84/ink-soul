@@ -25,10 +25,82 @@ Use [OpenCode](https://opencode.ai) as an autonomous coding worker orchestrated 
 ## Prerequisites
 
 - OpenCode installed: `npm i -g opencode-ai@latest` or `brew install anomalyco/tap/opencode`
-- Auth configured: `opencode auth login` or set provider env vars (OPENROUTER_API_KEY, etc.)
-- Verify: `opencode auth list` should show at least one provider
+- Auth configured (see "Custom Provider Setup" below for non-OpenAI providers)
+- Verify: `opencode providers list` should show available providers
 - Git repository for code tasks (recommended)
 - `pty=true` for interactive TUI sessions
+
+## Custom Provider Setup (Non-OpenAI with OpenAI-Compatible API)
+
+OpenCode has a **hardcoded model list** — it only sends known model names (like `gpt-4o-mini`, `claude-sonnet-4`) to the API endpoint. It does NOT dynamically discover models from the provider. This causes 400 errors when using providers that require specific model names.
+
+**The workaround**: Run a model-name rewrite proxy between OpenCode and the provider. The proxy intercepts API requests, rewrites the `model` field from OpenCode's hardcoded name to the provider's actual model name, then forwards the request.
+
+**Known limitation**: OpenCode validates model names before sending requests. With `control_account` overrides, `-m openai/gpt-4o-mini` still fails model validation. Set `OPENAI_API_KEY` and `OPENAI_BASE_URL` environment variables to bypass this validation entirely.
+
+### Setup Steps (DeepSeek Example)
+
+The proxy script lives at: `~/.hermes/skills/autonomous-ai-agents/opencode/scripts/ds-proxy.py`
+
+```python
+# Step 1: Start the proxy (see scripts/ds-proxy.py in this skill for the full file)
+# Key design decisions:
+#   - TARGET = "https://api.deepseek.com" (NO /v1 suffix — self.path includes /v1/)
+#   - Separate do_GET returns /v1/models for model discovery
+#   - do_POST rewrites model field to deepseek-v4-flash
+#   - SO_REUSEADDR prevents port exhaustion on restart
+```
+
+```bash
+# Step 2: Start the proxy
+python3 ~/.hermes/skills/autonomous-ai-agents/opencode/scripts/ds-proxy.py 8099 &
+
+# Step 3: Write provider credentials to OpenCode's provider database (needed for auth, but NOT for model routing)
+python3 -c "
+import sqlite3, time, os, json
+auth_path = os.path.expanduser('~/.hermes/auth.json')
+with open(auth_path) as f:
+    key = json.load(f)['credential_pool']['deepseek'][0]['access_token']
+db = os.path.expanduser('~/.local/share/opencode/opencode.db')
+conn = sqlite3.connect(db)
+now = int(time.time() * 1000)
+conn.execute('INSERT OR REPLACE INTO control_account VALUES (?,?,?,?,?,?,?,?)',
+    ('deepseek', 'deepseek', 'http://127.0.0.1:8099', key, '', 9999999999999, 1, now, now))
+conn.commit()
+"
+```
+
+```bash
+# Step 4: Set env vars and verify
+OPENAI_API_KEY="$(python3 -c "
+import json
+print(json.load(open('$HOME/.hermes/auth.json'))['credential_pool']['deepseek'][0]['access_token'])
+")" \
+OPENAI_BASE_URL="http://127.0.0.1:8099" \
+opencode run --model 'openai/gpt-4o-mini' "Respond with exactly: DEEPSEEK_OK"
+```
+
+> **Note**: The `OPENAI_API_KEY` + `OPENAI_BASE_URL` env var override is required because OpenCode's hardcoded model list will reject `openai/gpt-4o-mini` when routed through `control_account` alone. The env vars bypass model validation entirely.
+
+### Troubleshooting Custom Provider Setup
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `400 - model not supported` | OpenCode bypassed proxy | Check `OPENAI_BASE_URL` is set to proxy address |
+| `Model not found: openai/gpt-4o-mini` | OpenCode's built-in model list rejected the combo | Set `OPENAI_API_KEY` + `OPENAI_BASE_URL` env vars |
+| `Model not found: X/.` | Model name lacks `provider/` prefix | Use `--model openai/gpt-4o-mini` format |
+| `Connection refused` | Proxy not running | Start proxy first |
+| `Address already in use` | Old proxy holding port | `fuser -k 8099/tcp; sleep 1` then retry |
+| `502 Bad Gateway` | Proxy can't reach upstream | Check API key validity / network |
+
+### OpenCode Provider Database Schema
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `control_account` | Provider API keys & endpoints | `email` (provider name), `url` (API base URL), `access_token`, `token_expiry` |
+| `account` | OpenCode cloud accounts (not AI providers) | `id`, `email`, `access_token` |
+
+**Key insight**: The `control_account` table stores AI provider credentials. The `url` field is the API base URL — set this to your proxy URL for custom providers. The `email` field is a user-chosen provider identifier.
 
 ## Binary Resolution (Important)
 
@@ -188,6 +260,9 @@ terminal(command="opencode stats --days 7 --models anthropic/claude-sonnet-4")
 
 ## Pitfalls
 
+- **Hardcoded model list**: OpenCode only sends known model names (e.g., `gpt-4o-mini`, `claude-sonnet-4`) to the API. It does NOT dynamically discover models. Use env var override (`OPENAI_API_KEY` + `OPENAI_BASE_URL`) for custom providers.
+- **Model name validation**: Even with `control_account` URL override, `-m provider/model` may fail because models are not registered under providers. `OPENAI_API_KEY` + `OPENAI_BASE_URL` env vars bypass this.
+- **Provider name `deepseek/` is recognized** by OpenCode as a valid provider, but no models are registered under it.
 - Interactive `opencode` (TUI) sessions require `pty=true`. The `opencode run` command does NOT need pty.
 - `/exit` is NOT a valid command — it opens an agent selector. Use Ctrl+C to exit the TUI.
 - PATH mismatch can select the wrong OpenCode binary/model config.

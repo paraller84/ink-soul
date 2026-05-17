@@ -176,6 +176,73 @@ trigger: 当用户要求做Pad端适配、界面大屏优化、触屏儿童UI设
 
 **不要使用** context_processor 注入 page_id 的方式 — 会导致高亮逻辑分散在路由层，每个端点需要重复传递参数。block 机制是模板层原生方案，零耦合。
 
+**陷阱：base 的 url_for() 一次崩溃全站**
+
+`pad_base.html` 的任何 `url_for()` 被所有子模板共享。一个不存在端点的 `url_for()` 会导致 **所有继承它的页面 BuildError → 500**。
+
+```jinja
+{# ❌ student.profile 不存在，所有页面崩溃 #}
+<a href="{{ url_for('student.profile') }}">个人中心</a>
+
+{# ✅ 不存在就用 # 占位 #}
+<a href="#">个人中心</a>
+```
+
+**预防**：每次在 pad_base 中添加/修改导航项时，先确认端点是否存在：
+```bash
+grep -n "def $(echo 'student.profile' | cut -d. -f2)" routes/student.py
+```
+
+### 模板迁移模式：独立 HTML → pad_base 继承
+
+当系统初始开发时，学生端模板可能以独立HTML编写（不含 base 继承）。后续统一为 Pad 侧栏布局时，需要进行**系统性模板迁移**。
+
+#### 迁移步骤
+
+每页精确转换：
+
+| 原始独立HTML | → | pad_base 继承模板 |
+|---|---|---|
+| `<!DOCTYPE html>` | → | `{% extends 'pad_base.html' %}` |
+| `<title>xxx</title>` | → | `{% block title %}xxx{% endblock %}` |
+| `<style>...</style>` | → | `{% block head_extra %}<style>..</style>{% endblock %}` |
+| 页面内容 | → | `{% block content %}...{% endblock %}` |
+| `<script>...</script>` | → | `{% block scripts %}<script>..</script>{% endblock %}` |
+| `</body></html>` | → | 删掉 |
+
+**block 清单**（每个 block 可选，顺序规范）：
+
+| block | 用途 | 必需 |
+|-------|------|------|
+| `title` | `<title>` 标签内容 | 推荐 |
+| `page_id` | 侧栏导航高亮标识 | 推荐（空则为不亮） |
+| `head_extra` | `<style>` + 额外 `<meta>` | 样式多时必用 |
+| `content` | 主内容区 | ✅ |
+| `scripts` | `<script>` JS 代码 | 有JS时必用 |
+
+#### 迁移注意事项
+
+1. **移除后退按钮** — 侧栏已提供导航，`<a class="back-btn">←</a>` 应移除
+2. **body 的 flex 容器** — 独立页面的 `body{display:flex;flex-direction:column;padding:16px}` 需要迁移到一个内容容器的 class（如 `.practice-container`）内
+3. **feedback-overlay** — 使用 `position:fixed` 的弹窗不受侧栏影响，直接留在 `{% block content %}` 内即可
+4. **`url_for()` 检查** — 迁移后模板中的 `url_for('xxx')` 必须全部有对应路由
+5. **`student` 变量由 context_processor 注入** — pad_base.html 不从 route 获取 student，检查 `routes/student.py` 的 context_processor 确保已注入
+
+#### 验证方法
+
+迁移后对每个页面检查三要素：
+
+```python
+for url in pages:
+    resp = c.get(url)
+    assert resp.status_code == 200
+    assert b'pg-layout' in resp.data     # pad 布局骨架
+    assert b'BuildError' not in resp.data # 无路由构建错误
+    assert b'Traceback' not in resp.data  # 无 Python 异常
+```
+
+同时测试**原路由路径**正常（向前兼容），并检查 **nav 高亮**是否匹配 page_id。
+
 ### 批量化模板改造流程
 
 当需要将多页面（15+）从手机/Pad双视图改造为Pad单视图时，手动改造效率低且易出错。推荐批量化流程：

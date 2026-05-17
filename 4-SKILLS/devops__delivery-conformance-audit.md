@@ -7,7 +7,7 @@ description: >-
   对照矩阵 → 质量评分 → 审定报告）。
   Phase 6 (选做): 从领域专家视角评估功能完整性，识别架构级缺口，驱动架构重构。
   适用于回答"交付物是否符合原设计"以及"从领域角度看系统是否完整"两类问题。
-version: 1.1.0
+version: 1.2.0
 metadata:
   hermes:
     tags: [audit, quality, c007, delivery, conformance, review, domain-completeness, architecture-refinement]
@@ -41,11 +41,42 @@ Phase 1 ── 设计规格收集
   └─ 输出: 结构化设计需求清单（P0/P1/P2 优先级保留）
 
 Phase 2 ── 实际系统探测
-  ├─ API 层测试（全部端点 curl）
-  ├─ 页面渲染测试（browser_navigate + snapshot）
-  ├─ 功能流程测试（浏览器端到端操作）
-  ├─ 边界条件测试（空数据/错误状态）
-  └─ 输出: 功能实测结果清单
+  ├─ 2A: API 层测试（全部端点 curl）
+  ├─ 2B: 数据库一致性审计
+  ├─ 2C: curl 端到端全链路测试
+  ├─ 2D: 浏览器页面渲染测试（browser_navigate + snapshot）
+  ├─ 2E: 边界条件测试（空数据/错误状态）
+  └─ 输出: 功能实测 + 数据一致性 + 全链路结果清单
+
+Phase 2B ── 数据库一致性审计
+  ├─ 检查所有表的行数（是否为空/有意义）
+  ├─ 检查外键引用完整性（孤立记录检测）
+  ├─ 检查表间数据量一致性（如每个 schedule 的 question_count 与实际 practice_records 数）
+  ├─ 检查跨表字段一致性（如 schedule.status = 'completed' 应有对应 answer 记录）
+  ├─ 检查引用完整性：
+  │   └─ SELECT * FROM records WHERE fk_id NOT IN (SELECT id FROM parent)
+  ├─ 检查旧系统遗留数据（迁移后的数据污染）
+  ├─ ⭐ 检查"下游数据消费者"是否连接
+  │   ├─ 不仅仅是表存在、字段正确——要验证数据是否真正能流入这些表
+  │   ├─ 追踪"写路径"：用户交互动作（答题/打卡/切换）→ 哪些表被 INSERT/UPDATE？
+  │   └─ 常见缺失：
+  │       1. wrong_questions 表 schema 正确但 schedule_answer 路由从未写入（答错不记录）
+  │       2. practice_schedule.status 始终 'assigned' 从未被修改为 'in_progress'/'completed'
+  │       3. daily_checkins 表存在但没有任何路由触发 INSERT
+  │       → 每个数据表至少有一个写入点被生产端动作触发，不满足即为 Bug
+  └─ 输出: 数据库一致性状态报告（含孤立记录数 + 消费者连通性）
+
+Phase 2C ── curl 端到端全链路测试
+  ├─ 构建结构化测试套件，按阶段组织（推荐10-100+用例）
+  ├─ 每阶段测试相关页面的 HTTP 状态 + 响应内容关键词
+  ├─ 测试流程完整性（登录→练习→答题→完成→报告→历史）
+  ├─ 使用 curl cookie jar 模拟浏览器会话
+  ├─ 处理蓝图 URL 前缀中的动态路径参数（如 /parent/chinese/<int:student_id>/...）
+  ├─ 使用 session_search 或 session_start 保持 session 测试
+  ├─ 同时对同一路由测试多重关键响应条件（200/302 + 内容 + 数据更新）
+  ├─ 创建独立测试脚本文件，便于重复运行
+  ├─ 参考: references/curl-full-link-testing.md
+  └─ 输出: 完整通过的测试套件（推荐目标：100% 通过）
 
 Phase 3 ── Bug 定位与修复（如发现时）
   ├─ 定位根因（文件+行号）
@@ -61,13 +92,8 @@ Phase 4 ── 规格对照矩阵
   │   ├─ ⚠️ 部分达标 — 功能存在但未完全按设计实现
   │   ├─ ❌ 未达标 — 功能缺失或与设计冲突
   │   └─ ➕ 超额交付 — 超出设计范围
-  └─ 输出: 完整对照矩阵表
-
-Phase 5 ── 质量评分与最终报告
-  ├─ 综合评分（10分制）
-  ├─ 缺口分析与影响评估
-  ├─ 增量优化建议（非阻塞）
-  └─ 输出: 审定结论（✅ 通过 / ⚠️ 有条件通过 / ❌ 需整改）
+  ├─ 注意：不要只做 API 测对照。对每张数据库表、每个路由、每个核心模板都做实现 vs 设计文档的逐项比较
+  └─ 输出: 完整对照矩阵表（表层+路由层+模板层）
 ```
 
 ## 对照矩阵模板
@@ -297,6 +323,18 @@ LLM/推理               🧠 极高     Backend
 4. **发现 Bug 当场修复比后续再修复成本低得多** — 审定过程中发现的 Bug 可即时用 patch 修复，重新验证后纳入报告
 5. **修复后必须清除缓存/重启服务** — 否则测试看到的是旧数据
 6. **对照矩阵要逐字对照** — 不要概括设计规格，保留原文中的措辞细节，避免"近似匹配"导致漏判
+7. **不要单独依赖 HTTP 200 作为页面可用性的唯一验证** — 200 不代表内容正确。增加内容关键词检查（`in r.text`）确认预期内容渲染
+8. **数据库一致性要检查孤立记录** — 系统迁移后旧表遗留数据可能引用不存在的父记录（schedule_id 指向已删除的 schedule）。用 `SELECT * FROM child WHERE fk_id NOT IN (SELECT id FROM parent)` 检测
+9. **蓝图 URL 前缀可能含动态路径参数** — 如 `url_prefix='/parent/chinese/<int:student_id>'`，测试 URL 必须携带该参数，否则返回 404。先检查路由注册（`grep -rn 'route\\|blueprint\\|url_prefix'`）
+10. **新旧系统共存时要分别测试两套路由** — 旧系统路由（如 `/practice/<session_id>/...`）和新系统路由（如 `/practice/schedule/<id>/...`）可能同时运行，确保都覆盖
+11. **设计对照不只是路由对照** — 逐张数据库表、逐条路由、每个核心模板都需要对照设计文档。常见遗漏：设计文档中的表存在但无数据、模板硬编码了本该动态计算的字段值
+12. **测试脚本本身也有 Bug** — URL 格式错误、cookie 未传递、关键词匹配过严都会产生假阳性失败。先手动验证几个端点的真实行为再信任脚本输出
+13. **⭐ 下游消费者连通性检验（常见缺失）** — 不要只检查表是否存在。要验证每个表的*写入路径*是否被用户交互动作触发。典型缺失：
+    - `wrong_questions` 表 schema 正确但 `schedule_answer` 路由从不 INSERT（答错不记录）
+    - `daily_checkins` 存在但无任何路由触发 INSERT（打卡功能不完整）
+    - `practice_schedule.status` 始终 'assigned' 从未被修改为 'in_progress'（状态机不完整）
+    - 审计方法：对每张用户交互涉及的表，执行"交互→DB快照"两步确认
+14. **⭐ "隐藏功能"检测** — 后端计算了数据并传递到模板，但前端没有对应的 UI 触发入口。典型表现：模板中 `{% if X %}` 只有单分支（X=True 时显示，X=False 时无任何 UI）。审计所有条件分支的双侧完整性
 
 ## 关联技能
 

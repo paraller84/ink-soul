@@ -1,7 +1,7 @@
 ---
 name: content-factory-workflow
 description: "C014 个人品牌内容工厂 — 周一选题→周二生成→周四/五发布的周级内容运营流水线。涵盖模块架构、cron编排、话题源管理、Feishu通知格式及常见故障恢复。"
-version: 1.6.0
+version: 1.9.0
 triggers:
 triggers:
   - user asks "run content factory" / "run C014" / "内容工厂"
@@ -19,6 +19,9 @@ triggers:
   - user asks to publish / push / 发布 / 推送 content to platforms
   - user asks about writing / creating drafts in 公众号/知乎/小红书 editors
   - published articles are stuck as "drafts only" and need platform-specific fixes
+  - user asks about hot/viral article styles on a specific platform
+  - user says "先思考一下平台的热点文章结构" or similar
+  - first time writing for a new platform (WeChat/Zhihu/Xiaohongshu)
 ---
 
 # 内容工厂工作流 (Content Factory)
@@ -39,16 +42,27 @@ triggers:
 ```
 ~/.hermes/scripts/content-factory/
 ├── weekly_cron.py           # 主编排入口（按参数调度阶段）
-├── content_pool.py          # 话题池：从多个源提取候选话题
-├── topic_calendar.py        # 主题日历：从候选池中选取周度主题
-├── article_generator.py     # 文章生成器：为各平台生成文章
+├── content_pool.py          # 话题池
+├── topic_calendar.py        # 主题日历
+├── article_generator.py     # 文章生成器
 ├── style_learner.py         # 风格学习器
 ├── review_manager.py        # 审核管理器
-├── publisher_base.py        # 发布基类
-├── publisher_wechat.py      # 微信公众号发布器
-├── publisher_zhihu.py       # 知乎发布器
-├── publisher_xiaohongshu.py # 小红书发布器
-└── config.yaml              # 主配置文件
+├── wechat-api-publisher.py       # ✅ 微信公众号 API 发布器 (Python, 2026-05-16)
+│                                  #    基于官方草稿箱API，无需浏览器，无需Cookie
+│                                  #    用法: --publish / --draft / --test / --batch-publish
+│                                  #    依赖: Python 3 (无额外依赖)
+├── wechat-cover-uploader.js      # ✅ 封面图生成+上传 (Node.js Playwright)
+│                                  #    用法: --batch 目录 输出目录
+│                                  #    依赖: Node.js playwright (hermes-agent内置)
+├── publisher-worker.js           # 🔶 多平台发布管线 (Node.js Playwright, 仅知乎/小红书)
+│                                  #    公众号已改用API (wechat-api-publisher.py)
+│                                  #    用法: --cookie-setup / --publish / --check
+│                                  #    依赖: Node.js playwright (hermes-agent 内置)
+├── publisher_base.py             # ❌ 弃用
+├── publisher_wechat.py           # ❌ 弃用
+├── publisher_zhihu.py            # ❌ 弃用
+├── publisher_xiaohongshu.py      # ❌ 弃用
+├── config.yaml                   # 主配置文件
 ```
 
 ## 每日任务 → 话题发现机制（周五集中批处理）
@@ -499,9 +513,279 @@ os.unlink(tmp)
 - 创建文档后，用户可自主编辑、分享或导出为 PDF/Word
 - 文件自动存在于「Hermes生成文件 → 内容工厂出品」目录下，用户可从飞书云盘直接访问
 
-## 跨平台多载体文章生成技术
+## 平台前研究：热点文章结构调研
+
+每次为用户构思平台化文章前，应先进行平台热点文体调研，而非仅凭经验直接动笔。
+
+### 触发条件
+
+以下任一情况出现时，执行平台研究：
+
+- 用户要求将同一主题发布到多个平台
+- 用户说"你先思考一下xx平台的流行文体结构"或类似表述
+- 距离上次同赛道平台研究已超过 30 天（内容趋势会变化）
+- 面向一个从未写过的新平台首次创作
+
+### 研究方法（并行 delegate_task）
+
+使用 Hermes 的 `delegate_task` 工具，同时启动 3 个独立搜索任务，每个针对一个平台：
+
+```json
+[
+  {
+    "goal": "搜索微信公众号「{赛道关键词}」赛道爆款文章结构特征",
+    "context": "目标：理解公众号上什么标题结构最容易出爆款，开头用什么叙事抓住读者，正文段落切分方式，结尾钩子。侧重职场/效率人群。",
+    "toolsets": ["web"]
+  },
+  {
+    "goal": "搜索知乎「{赛道关键词}」话题高赞回答的叙事结构",
+    "context": "目标：理解知乎长文的爆款结构——反常识断言开头的、结构严密的、有操作步骤的。分析标题/开头/正文/结尾模式。",
+    "toolsets": ["web"]
+  },
+  {
+    "goal": "搜索小红书「{赛道关键词}」爆款笔记特征",
+    "context": "目标：分析封面设计、标题数字特征、正文篇幅、排版方式、emoji使用模式。侧重职场/自我管理话题。",
+    "toolsets": ["web"]
+  }
+]
+```
+
+**三个任务并行执行**，结果汇总后交叉对比。
+
+### 研究成果存档
+
+每个主题的研究成果应当：
+
+1. 提取各平台的核心结构模板（开头→正文→结尾）
+2. 制作跨平台对比矩阵（字数/口吻/结构/图片/结尾）
+3. 标注你最可能模仿的 2-3 个成功案例
+4. 保存到 `content-factory-workflow` 的 `references/` 目录下，文件命名：`platform-research-{topic}-{YYYYMMDD}.md`
+
+详细研究成果可参考 `references/platform-hot-article-research-guide.md`（通用版）或按话题定制的独立文件。
+
+---
+
+## 文章配图生成方案
+
+内容工厂的文章在各平台发布需要配图（封面图、文中插图）。当前已验证三种方案，按推荐优先级排列：
+
+### ✅ 方案 A（当前标准路径 · 2026-05-17 用户确认）：Agent 写提示词 → 用户手动即梦生成
+
+**用户明确选择的标准路径**（而非继续尝试自动化出图方案）。Agent 负责精确设计提示词（含模型建议、比例、风格关键词、场景描述），用户登录即梦AI网页端手动生成并保存，发回给 Agent 嵌入文章。
+
+#### 使用场景
+- 所有需配图的文章发布前
+- 三平台同时发布时，每个平台独立配图（风格不同）
+
+#### 工作流
+```
+文章定稿
+  ↓
+Agent 分析文章核心视觉要素（数据对比/结构图/场景示意/隐喻）
+  ↓
+Agent 为每个平台设计 1-3 个配图提示词（封面+正文）
+  ↓
+Agent 整合为独立配图需求文档（HTML格式，含使用说明+比例+模型建议）
+  ↓
+上传配图需求文档至飞书云盘文章所在文件夹 → 发送链接给用户
+  ↓
+用户打开文档 → 复制提示词到 jimeng.jianying.com「文生图」→ 生成
+  ↓
+用户将满意的图片发送到对话框（无需说明是哪张，Agent自行识图匹配）
+  ↓
+Agent 将图片嵌入文章对应位置
+```
+
+#### 配图提示词结构模板
+
+每条提示词应包含以下信息：
+
+```
+【使用说明】建议模型 / 比例 / 模型版本
+【提示词正文】详细中文场景描述 + 视觉风格关键词
+```
+
+#### 三平台视觉风格规范
+
+| 平台 | 视觉基调 | 主色 | 推荐比例 | 视觉隐喻偏好 |
+|:----|:---------|:----|:---------|:------------|
+| **微信公众号** | 暗色科技风·深度 | 青色/蓝色 | 16:9 横图 / 3:2 | 数据管道、发光线条、粒子流动、赛博朋克光影、IMAX质感 |
+| **知乎** | 暖色思辨风·理性 | 琥珀色/金色 | 1:1 方图 | 几何分形、对称构图、工程师图纸、第一性原理图、抽象结构 |
+| **小红书** | 粉紫实用风·干货 | 粉红/粉紫渐变 | 3:4 竖图 | 手写笔记、ins风排版、大数字对比、圆角卡片、柔和渐变背景 |
+
+#### 配图类型与生成要点
+
+| 配图类型 | 典型用途 | 提示词要点 |
+|:---------|:---------|:-----------|
+| **对比图** | 之前vs之后、旧vs新 | 左右二分：一侧杂乱/红色，一侧整洁/绿色，中间有过渡光束 |
+| **管道图** | 数据流、分流模型 | 多段式水平结构（如三段管道+箭头），发光节点标注层次 |
+| **场景图** | 通勤/办公/睡前 | 三张卡片式排列，各带标志性元素（地铁/台灯/月亮），色彩渐变 |
+| **数字图** | 核心数据突出 | 大号数字 + 简要说明文字（如"20+ → 5-7"），数字发光强调 |
+| **抽象图** | 方法论/哲学概念 | 几何抽象 + 分形元素，不具象但传递思维层次感 |
+
+#### 配图需求文档格式规范
+
+当为多平台系列文章设计配图时，将提示词整合为独立配图需求文档（而非散落在对话中）：
+
+- **格式**：HTML 文档，暗色科技风主题（见 `html-info-doc-production` skill），卡片式布局
+- **内容要求**：
+  - 文档头部：版本号、日期、配图总数、平台分布统计
+  - 每个平台独立区块：平台名 + 视觉风格关键词 + 色系标识
+  - 每张配图独立卡片：封面/正文标注、比例、模型建议、提示词正文（蓝色/金/粉三色标识框）、使用提示
+  - 文档尾部：执行清单（建议优先级排序）
+- **存放**：上传到飞书云盘文章所在文件夹，分享给用户
+- **原因**：一次给用户完整的图库概览，用户可按优先级逐张生成，无需反复沟通
+
+#### 即梦AI操作要点
+- 同一个提示词多刷几次（即梦每次生成质量波动大）
+- 模型版本优先选 4.0/4.5，5.0 对中文理解更好但风格偏写实
+- 生成后检查是否有破坏性文本渲染（即梦对中文文字渲染不稳定）
+- 封面图优先，正文配图可以在封面确认后再逐步生成
+
+#### 提示词示例库
+见 `references/jimeng-ai-prompt-examples.md` — 包含本系列文章的完整提示词示例
+
+---
+
+### 方案 B（备选）：即梦AI CLI 出图
+
+使用 **Jimeng AI (即梦/字节跳动) CLI 工具** `dreamina` 命令行出图。
+
+**当前状态：Standard 账号无法使用 CLI 出图（需 Maestro VIP）**，详见下方章节。
+
+### 方案 C（备选）：Hermes 内置 image_gen 插件
+
+Hermes Agent 内置了 `openai` / `openai-codex` / `xai` 三个图片生成插件，但均需要对应的 API Key 环境变量（当前未配置）。
+
+---
+
+### 即梦AI CLI 工具详情
+
+#### 工具状态
+
+| 项目 | 状态 |
+|:----|:----:|
+| 安装 | `curl -fsSL https://jimeng.jianying.com/cli \| bash` → `~/.local/bin/dreamina` |
+| 登录 | headless OAuth 模式（`dreamina login --headless` → 用户浏览器确认） |
+| 出图 | `dreamina text2image --prompt="..." --ratio=16:9 --poll 30` |
+| 账号要求 | **Maestro VIP**（Standard 账号无法使用 CLI 出图） |
+
+#### 登录架构（反直觉但重要）
+
+```mermaid
+flowchart LR
+    A[CLI dreamina login --headless] --> B[OAuth链接+设备码]
+    B --> C[用户Windows浏览器打开确认]
+    C --> D[Token持久化在本地]
+    D --> E[后续调用复用Token]
+    
+    F[网页登录] -.->|window.open弹窗| G[无头浏览器无法捕获]
+    G -.->|改用CLI方案| A
+    
+    注意：CLI的OAuth登录和浏览器登录是独立的session
+```
+
+**关键发现**：Jimeng AI 网页端的登录使用 `window.open()` 弹出新窗口，无头浏览器（Playwright/Puppeteer）无法捕获此弹窗。因此 **不要尝试通过浏览器自动化登录 Jimeng AI**。改用 CLI 的 headless 登录模式。
+
+#### CLI 常用命令
+
+```bash
+# 检查登录状态和账号信息
+dreamina user_credit
+# → 输出: { total_credit, user_id, user_name, vip_level }
+
+# 生成图片
+dreamina text2image \
+  --prompt "极简科技风, 扁平化插画, 数据管道概念, 蓝色色调" \
+  --ratio 16:9 \
+  --poll 30 \
+  --model_version 5.0
+
+# 支持的模型版本: 3.0, 3.1, 4.0, 4.1, 4.5, 4.6, 5.0
+# 支持的比例: 21:9, 16:9, 3:2, 4:3, 1:1, 3:4, 2:3, 9:16
+# 分辨率: 3.0/3.1 → 1k或2k; 4.0以上 → 2k或4k
+
+# 列出任务（查询历史）
+dreamina list_task
+
+# 查询指定任务结果
+dreamina query_result --task_id <id>
+```
+
+#### 账号升级路径
+
+Standard 账号（网页端可用）→ 升级 Maestro VIP（CLI 出图可用）→ 升级入口在 jimeng.jianying.com 网页端登录后「會員中心」。
+
+**检测命令**：`dreamina user_credit` 的输出 `vip_level` 字段显示当前等级。
+
+详细 CLI 笔记和登录踩坑：见 `references/jimeng-ai-cli-notes.md`
+
+---
+
+## 三平台多载体文章生成技术
 
 当同一话题需要同时面向公众号、知乎、小红书三个平台产出内容时，采用以下适配模式：
+
+### 自动发布管线 (2026-05-17 新增)
+
+使用 Node.js Playwright 脚本 `publisher-worker.js` 自动创建草稿/发布：
+
+```bash
+cd ~/.hermes/scripts/content-factory
+
+# 首次运行：Cookie 设置（需在 Windows Chrome 导出各平台 cookie）
+node publisher-worker.js --cookie-setup
+
+# 检查 cookie 状态
+node publisher-worker.js --check
+
+# 发布篇01到三平台
+node publisher-worker.js --publish all --article 01
+
+# 单独发布某平台
+node publisher-worker.js --publish zhihu --article 03
+```
+
+**发布能力矩阵（旧: Cookie方案）**：  
+- ✅ 知乎：自动创建草稿 + 自动发布  
+- ✅ 微信公众号：自动创建草稿 → 需在 mp.weixin.qq.com 手动发布  
+- ✅ 小红书：自动创建草稿 → 需在 creator.xiaohongshu.com 手动发布  
+
+**依赖**：Node.js Playwright（从 hermes-agent 的 node_modules 解析）  
+**注意**：Cookie 有效期 3-30 天不等，过期需重新导出  
+
+### 微信公众号 API 发布方案 (2026-05-16 新增，推荐替代Cookie方案)
+
+**使用官方草稿箱 API，无需浏览器，无需 Cookie，无需手动操作。**
+
+```bash
+# 设置凭证（一次性）
+python3 ~/.hermes/scripts/content-factory/wechat-api-publisher.py \
+  --setup <appid> <appsecret>
+
+# 创建并发布单篇文章
+python3 ~/.hermes/scripts/content-factory/wechat-api-publisher.py \
+  --publish /path/to/article_clean.html \
+  --cover <永久素材media_id> \
+  --title "文章标题"
+
+# 批量发布4篇系列文章
+python3 ~/.hermes/scripts/content-factory/wechat-api-publisher.py \
+  --batch-publish
+```
+
+**依赖**：
+- Python 3 标准库（urllib, json, re）— 零额外依赖
+- 微信公众平台 appid + appsecret（从 mp.weixin.qq.com → 设置与开发 → 基本配置 获取）
+- 封面图需先上传为永久素材（使用 `wechat-cover-uploader.js` 生成并上传，或手动上传）
+
+**注意事项**：
+- `thumb_media_id`（封面图）是 **必填参数**，不可省略
+- 摘要限制 120 字符以内，超长会报错
+- HTML 内容中 `<style>` 标签会被丢弃，必须使用内联 style
+- 封面图不适用旧 publisher-worker.js 的 Cookie 方式管理
+
+**详细 API 技术笔记**：见 `references/wechat-api-publishing.md`  
 
 ### 三平台文章结构对比
 
@@ -521,18 +805,35 @@ os.unlink(tmp)
 ```
 话题确认
   ↓
-① 先写公众号版（最完整，故事线+数据+感悟全包括）
+① 并行平台研究（delegate_task × 3 → 产出跨平台对比矩阵）
   ↓
-② 基于公众号版提炼知乎版（增加分析深度，补充设计决策依据）
+② 提炼核心框架（3-5句话概括共同的方法论骨架）
   ↓
-③ 基于公众号版压缩小红书版（提取痛点→步骤→数据，去除全部叙事铺陈）
+③ 独立起草各版本（不互相推导，各自从核心框架出发）
+```
+
+**核心框架先行**：在写任何一个版本之前，先用 3-5 句话提炼出共同的方法论骨架。例如本次三层分流体系的核心框架：
+> 信息入口（录音+邮件）→ 三层分流（我关注/他关注/场景切分）→ 自动归位
+> 核心数据：待办从 20+ 到 5-7 项，委派完成率+65%
+
+这个框架是所有版本的共同原点。不要从一个平台版本"推导"到另一个版本——那样会让第二个版本读起来像第一个版本的变体。
+
+**平台差异判别树**（何时推导 vs 独立起草）：
+
+```
+平台风格是否属于以下类别？
+├─ 叙事型（公众号：故事+感悟）→ 独立起草
+├─ 分析型（知乎：原理+决策）→ 独立起草
+└─ 清单型（小红书：痛点+步骤）→ 独立起草
+如果三平台的风格属于不同类别 → 独立起草各版本
+如果风格相同或接近（如都是同类的清单列表）→ 可以从一个版本推导
 ```
 
 **要点**：
-- **先写最完整版本（公众号）**，再推导其他两个版本，避免三篇割裂
-- **知乎版本不要重复公众号的故事段落**——知乎读者要的是"为什么这么设计"，不是"我有多辛苦"
-- **小红书版本必须去掉所有叙事性连接**——"我花了半年时间..."→直接变成"四步：1.录音管道 2.邮件分类…"，纯干货
-- 三者共享同一套核心数据和方法论框架，但呈现方式、语言风格、段落结构完全不同
+- **核心框架先行**——在动笔写任何版本前，先锁定 3-5 句核心方法论+3-5 个关键数据，这是所有版本的共同基因
+- **独立起草意味着**：公众号版本走叙事线（我不需要先写好公众号才能写知乎），知乎版本直接走分析线，小红书版本直接走清单线
+- **三者共享同一套核心数据和方法论框架**，但第一句话就已经是为特定平台量身定做的
+- 2026-05-17 实践验证：任务体系三层分流话题，三版用独立起草→开头钩子完全不重样（公众号"假若你每天…"，知乎"大多数任务系统的根本缺陷"，小红书"你是不是也这样？"），但核心框架一致
 
 ### 实践参考：个人任务闭环体系系列（2026-05-16）
 
@@ -540,6 +841,23 @@ os.unlink(tmp)
 - 篇03（分类过滤三篇）被评为核心篇目，公众号版10489字节，知乎版9502字节，小红书版5812字节
 - 篇01（总纲篇）的小红书版压缩到8169字节，大量使用emoji+步骤卡替代段落
 - 所有文件使用内联CSS暗色科技风，每篇独立完整HTML
+
+### 配图策略：每篇文章三套配图
+
+多平台文章生成时，配图应独立设计而非复用同一张图：
+
+| 平台 | 封面图风格关键词 | 比例 | 配图数量 |
+|:----|:----------------|:----:|:--------:|
+| 公众号 | 暗色科技·数据管道·发光 | 16:9 或 3:2 | 封面1张+正文2-3张 |
+| 知乎 | 暖色思辨·几何抽象·分形 | 1:1 | 封面1张+正文2-3张 |
+| 小红书 | 粉紫实用·大数字·手写感 | 3:4 | 封面1张+正文2-3张 |
+
+> 提示词写法详见「文章配图生成方案 → 方案A」章节和 `references/jimeng-ai-prompt-examples.md`。
+
+配图生成在文章初稿完成后、发布前执行，工作流：
+```
+文章定稿 → 配图提示词设计 → 用户手动即梦生成 → 图片发回 → 嵌入文章 → 发布
+```
 
 ### 参考文件
 
@@ -580,110 +898,75 @@ notifications:
 
 > 内容工厂的「周四/周五发布」阶段不只是发提醒——需要真实将文章投递到三个平台。
 
-### 当前发布管线现状
+### 当前发布管线状态
 
 | 组件 | 状态 | 说明 |
 |:----|:----:|:------|
-| `publisher_base.py` | ⚠️ 缺 `_ensure_browser()` 方法 | 三个子类都引用了此方法但未在基类定义 |
-| `publisher_wechat.py` | ⚠️ 需要扫码登录 | 首次需用户手动扫码，后续靠cookie |
-| `publisher_zhihu.py` | ⚠️ 同上 | 支持cookie恢复 |
-| `publisher_xiaohongshu.py` | ⚠️ 反爬严格 | 最终发布建议手动操作 |
-| Python playwright | ❌ 不可安装 | WSL网络限制导致pip超时 |
-| **Node.js Playwright** | **✅ 可用** | Hermes agent的node_modules中自带 |
+| `publisher_base.py` | ❌ 弃用 | 缺 `_ensure_browser()` 方法，Python包不可安装 |
+| `publisher_wechat/zhihu/xiaohongshu.py` | ❌ 弃用 | 依赖已废弃的基类 |
+| `wechat-api-publisher.py` | **✅ 工作中** | 公众号 API 发布器，Python实现，零外部依赖 |
+| `wechat-cover-uploader.js` | **✅ 工作中** | 封面图生成+上传到微信永久素材 |
+| `publisher-worker.js` | **✅ 工作中** | 仅用于 知乎/小红书 Cookie 发布（公众号已改用API） |
+| Puppeteer/Playwright | 无问题 | Node.js版自带，Hermes agent node_modules中 |
+| headless模式 | ⚠️ 受限 | WSL无X Server → headless only，首次登录需用户桌面操作 |
+| Python urllib | 无问题 | Python标准库，零配置 |
 
-### 发布流程（当需要执行发布时）
+### 发布管线（`publisher-worker.js` 实操工作流）
 
-#### 前提：首次登录（用户需操作一次）
+完整发布脚本位于 `~/.hermes/scripts/content-factory/publisher-worker.js`。Node.js Playwright实现，支持**两阶段工作流**：
 
-各平台发布需要用户的登录态。首次运行需用户在自己桌面浏览器（Windows端）手动登录并导出cookie。
+#### 阶段一：Cookie设置（用户操作一次，约6分钟）
 
-**推荐流程**：
-1. 用户在Windows Chrome访问各平台并登录（微信公众号 mp.weixin.qq.com / 知乎 zhuanlan.zhihu.com / 小红书 creator.xiaohongshu.com）
-2. 使用Chrome扩展（如"EditThisCookie"或"Cookie-Editor"）导出JSON格式cookie
-3. 将cookie文件传入WSL，放置在 `~/.hermes/cache/{platform}_cookies.json`
-4. 后续Agent可加载cookie，用headless Playwright自动创建草稿
+WSL无X Server，headless模式下无法扫码登录。首次需用户在**Windows桌面Chrome**手动登录后导出cookie。
 
-#### 第一步：内容格式转换
-
-HTML文章（含内联CSS）不能直接粘贴到平台编辑器。必须提取纯净内容：
-
-```python
-def html_to_platform_content(html_path):
-    """从暗色科技风HTML中提取纯文本/Markdown"""
-    import re
-    with open(html_path) as f:
-        html = f.read()
-    # 提取标题
-    title = re.search(r'<title>(.*?)</title>', html).group(1)
-    # 去除样式和脚本
-    text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
-    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
-    # 提取正文（替换HTML标签为纯文本标记）
-    text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1', text)
-    text = re.sub(r'<br\s*/?>', '\n', text)
-    text = re.sub(r'<[^>]+>', '', text)
-    # 清理多余空行
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    return title.strip(), text.strip()
+**用户操作流程**（每个平台重复）：
+```
+① 打开平台网址、扫码登录
+② F12 → Application → Cookies → 全选(Ctrl+A) → 复制(Ctrl+C)
+③ 在终端运行 --cookie-setup，粘贴cookie JSON
 ```
 
-**不同平台的编辑器格式限制**：
-- **微信公众号**：支持基本的HTML标签（p、h2、h3、ul/ol、strong、em），不支持内联CSS、不支持iframe。最好提前转为纯文本，用飞书/壹伴等工具排版后发布。
-- **知乎专栏**：支持Markdown（#标题、列表、代码块、引用），不支持内联CSS。可直接粘贴Markdown。
-- **小红书创作者中心**：支持纯文本+emoji，不支持富文本格式。只能粘贴纯文本+换行。
+**支持的三个平台**：
+- 微信: `mp.weixin.qq.com`
+- 知乎: `zhihu.com`
+- 小红书: `creator.xiaohongshu.com`
 
-**信息图处理**：HTML中的CSS绘制的流程图/对比卡无法在任意平台编辑器中保留。解决方案：
-- 用浏览器截图工具将信息图转为PNG
-- 在平台编辑器中以图片形式插入
-- 或直接去掉视觉元素，用文字+emoji替代（适合小红书）
+```bash
+# 启动Cookie设置向导（交互式粘贴）
+cd ~/.hermes/scripts/content-factory && \
+node publisher-worker.js --cookie-setup
 
-#### 第二步：使用Playwright创建草稿
-
-由于Python playwright不可安装（WSL网络限制），使用Hermes agent自带的Node.js Playwright：
-
-```javascript
-// Node.js 发布脚本模板
-const { chromium } = require('playwright');
-const fs = require('fs');
-const path = require('path');
-
-async function createDraft(platform, title, content) {
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  
-  // 加载已保存的cookie
-  const cookiePath = path.join(process.env.HOME, '.hermes/cache', `${platform}_cookies.json`);
-  if (fs.existsSync(cookiePath)) {
-    const cookies = JSON.parse(fs.readFileSync(cookiePath));
-    await context.addCookies(cookies);
-  }
-  
-  // 各平台登录/编辑页URL
-  const urls = {
-    wechat: 'https://mp.weixin.qq.com/cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&isNew=1&type=10&createType=0',
-    zhihu: 'https://zhuanlan.zhihu.com/write',
-    xiaohongshu: 'https://creator.xiaohongshu.com/creator/notes/new',
-  };
-  
-  await page.goto(urls[platform], { timeout: 30000 });
-  // 检查是否已登录，需要时引导用户扫码
-  // ...填充内容、保存草稿...
-  
-  await browser.close();
-}
+# 验证Cookie是否有效
+node publisher-worker.js --check
 ```
 
-**首次运行的障碍**：在WSL headless环境下，微信/知乎的扫码登录无法直接完成。首次必须由用户在桌面浏览器完成登录后导出cookie。
+Cookie持久化在 `~/.hermes/cache/{platform}_cookies.json`，有效期约7-30天。
 
-### 发布管线已知问题
+#### 阶段二：自动创建草稿
 
-| 问题 | 根因 | 状态 |
-|:----|:-----|:-----|
-| `self._ensure_browser()` 未定义 | publisher_base.py缺少浏览器启动方法 | ⚠️ 待修复 |
-| Python playwright不可安装 | WSL网络限制，pip超时 | - (改用Node.js) |
-| cookie首次需要手动导出 | headless模式无法扫码 | 需用户配合 |
-| 各平台反爬策略 | 知乎较宽松、小红书严格 | 知乎可自动发布，微信/小红书建议手动 |
+Cookie就绪后，一键创建草稿：
+
+```bash
+node publisher-worker.js --publish all --article 01    # 全部平台，篇01
+node publisher-worker.js --publish wechat --article 03 # 单独发布
+```
+
+知乎 → 自动发布；微信/小红书 → 自动存草稿，用户手动点发布。
+
+#### 内容格式转换（从HTML到平台可读文本）
+
+内置提取逻辑去掉CSS/JS/标签/实体，合并多余空行。各平台差异：公众号用iframe编辑器（frame.locator），知乎/小红书用contenteditable。
+
+#### 已知约束
+
+| 约束 | 缓解措施 |
+|:----|:---------|
+| WSL headless无法扫码 | 用户桌面登录后导出cookie（仅知乎/小红书）；公众号已改用API无需Cookie |
+| 微信iframe编辑器 | ❌ 已弃用 — 改用 Python API 发布器直接调用草稿箱API |
+| 小红书反爬严格 | 只创建草稿，手动发布 |
+| Python playwright不可安装 | 改用Node.js Playwright；或对公众号改用Python API方案 |
+| require声明顺序 | 将 `os`/`path`/`fs` 放在文件顶部 |
+| Node.js 中文编码问题 | Python `json.dumps(ensure_ascii=False)` 稳定处理中文；API调用避开Node.js |
 
 ## 陷阱与注意事项
 

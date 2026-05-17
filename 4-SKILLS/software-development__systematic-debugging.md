@@ -263,10 +263,11 @@ The root cause is often not the grading logic itself, but a mismatch in the **da
 
 4. **Common drift patterns**
 
-   | Pattern | Frontend sends | Backend expects | Symptom |
-   |---------|---------------|----------------|---------|
+   | Pattern | Frontend sends/reads | Backend returns/expects | Symptom |
+   |---------|---------------------|------------------------|---------|
    | Wrap drift | `{question_id, answer}` | `{answers: [{id, answer}]}` | Backend gets empty `answers[]` → 400 → `.correct` is undefined → all wrong |
-   | Key rename | `result.correct_answer` | returns `expected_answer` | Frontend shows empty/undefined response |
+   | Text key rename | `result.correct_answer` | returns `expected_answer` | Frontend shows empty/undefined response |
+   | Boolean key rename | `data.correct` (boolean flag) | returns `is_correct` (boolean flag) | **All answers judged wrong** despite DB showing correct records — backend comparison works correctly, only the response key name differs |
    | Nesting diff | `{session_id, index, answer}` | `{session_id, data: {answer}}` | Backend reads wrong path |
    | Type coercion | sends `answer: "10"` | expects `answer: 10` (int) | `"10" == 10` might fail depending on comparison |
 

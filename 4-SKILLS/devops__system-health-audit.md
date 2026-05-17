@@ -153,6 +153,49 @@ grep -n 'May 0[5-9]' ~/.hermes/logs/errors.log              # 限定日期范围
 - `next_run_at` vs `last_run_at` — 推断是否按预期执行
 - 重点关注：每日 7AM 练习生成、8/20 点解析、2h 英语同步、3AM 飞书同步
 
+#### 4B. Cron 时间碰撞分析（重要）
+
+> 多个 LLM 任务在同一分钟启动可能导致 WSL 内存不足或 DeepSeek API 限流（429），出现共振 Bug。
+
+**分析步骤：**
+
+1. 获取所有 cron 任务列表（`cronjob list`）
+2. 按 cron 表达式分组，找出**同分钟触发的所有任务**（精确到分钟）
+3. 区分任务类型：
+   - `LLM` 标签（需 Agent 推理，消耗 Token/CPU/内存）
+   - `script` 标签（no_agent 零 Token，仅文件 IO）
+   - `提醒` 标签（Shell 脚本，极轻量）
+4. 标注每个碰撞窗口的风险等级
+
+**风险等级判定标准：**
+
+| 等级 | 条件 |
+|:----:|:-----|
+| 🔴 P0 | 3+ 个 LLM 任务同时运行 |
+| 🟡 P1 | 2 个 LLM 任务同时运行 |
+| 🟢 P2 | LLM + 脚本 或 仅脚本碰撞 |
+
+**典型碰撞窗口发现（来自实战）：**
+
+| 时间 | 任务 | 等级 | 建议 |
+|:----:|------|:----:|:-----|
+| 周一/二·08:00 | 晨间简报(LLM) + 日工作建议(LLM) + C014(LLM) | 🔴 | 错开 30min |
+| 每日·07:30 | 学习日报(LLM) + 待办回顾(LLM) | 🟡 | 错开 5-10min |
+| 周日·20:00 | Token周报(LLM) + AI周出题(LLM) + 健康回顾 | 🟡 | 提前或延后脚本 |
+
+**碰撞分析输出格式：**
+
+```markdown
+## 时间碰撞窗口分析
+
+| 时间 | 任务（LLM高亮） | 碰撞等级 | 影响 |
+|:----:|:---------------|:--------:|:-----|
+| 08:00 | 晨间简报🟡 / 日工作建议🟡 / C014🟡 | 🔴 P0 | 3个LLM并发→可能OOM或429 |
+
+观察：34个任务中，X个存在明确时间重叠风险(Y%)。
+建议：修改X个cron表达式，预计耗时15分钟。
+```
+
 ### 5. 依赖健康
 
 ```bash
@@ -232,7 +275,7 @@ mount | grep " /mnt/g "                              # DrvFs 挂载状态
 | AI家庭教师 | 入口+三科练习+拍照 | 详见 references/ai-family-tutor-health-check.md |
 | 数学 C003 | 日志最近运行 | tail ~/edu-hub/logs/c003-activity.log |
 | 英语 C008 | 数据大小 | du -sh ~/edu-hub/english/data/ |
-| 质量门禁 C015 | 上次扫描结果 | tail ~/edu-hub/quality_gate/quality_gate.log |
+| 质量门禁 C015 | 上次扫描结果 | 运行 quality_gate.py --target <项目> --quiet | jq '.summary' |
 | 系统知识同步 C009 | 文档覆盖 | ls ~/wiki/raw/systems/ |
 | 飞书同步 | Token 有效性 | 检查 ~/.hermes/feishu-tokens.json |
 

@@ -261,18 +261,52 @@ grep -A2 "@eng_v2.route(\"/$route\"" routes.py | grep render_template
 
 ### Phase 4.5: 质量门禁扫描（新增）
 
-在实施完成后、回归测试之前，运行自动化质量门禁（C015）扫描新增/修改的系统。
+在实施完成后、回归测试之前，运行自动化质量门禁扫描新增/修改的系统。
 
 **执行方式**：
 ```bash
-python3 ~/edu-hub/quality_gate/run_quality_gate.py --system <系统ID> --task-id <task_id>
+python3 ~/.hermes/scripts/quality_gate.py --target ~/edu-hub/ai-family-tutor
 ```
 
-**输出**：JSON 报告到 `artifacts/<task_id>/quality_report_<系统ID>.json`
+**输出**：JSON 报告生成在项目根目录 `quality_gate_report.json`（非 artifacts/ 下）
 
 **门禁策略**：
 - 门禁扫描会发现**三类问题**：新引入的、预先存在的、行为预期（如认证）
 - 所有阻断级问题必须处理 → 进入 Phase 4.6
+
+**⚠️ 首跑量级陷阱**：首次在现实项目上运行 quality_gate.py 会产生大量发现（实战：AI家庭教师项目首跑 426 项，其中 A 类 4、B 类 30、C 类 392）。这是正常的——绝大多数是遗留存量问题。不要被总数吓到，执行 Phase 4.6 分类后，真正的阻断项（A 类新引入）通常是个位数。
+
+### 6维质量门禁定义（D1-D6）
+
+质量门禁扫描覆盖以下6个维度，对应8类历史高发缺陷：
+
+| 门禁 | 检测内容 | 检测方法 | 目标缺陷 |
+|:----|:---------|:---------|:---------|
+| **D1** | 硬编码模拟数据 | 搜索 SAMPLE / MOCK / 模拟数据 / 示例题 模式在 .py/.html/.js 中 | 硬编码兜底未替换 |
+| **D2** | URL路由一致性 | 对比前端 href 与后端 Blueprint 路由注册，每三个月蓝图前缀匹配 | 死链接/蓝图前缀缺失 |
+| **D3** | 数据持久化完整性 | 每个 submit/answer 处理器 → 检查是否有 write/record/INSERT/update 调用 | 幽灵评分（数据未持久化） |
+| **D4** | 模板渲染变量追踪 | 模板变量 → render_template 参数 → 上游数据源，验证管道每环节变量存在 | 空洞渲染（模板条件字段缺失） |
+| **D5** | 输入参数校验 | 路由函数是否有 input validation / 边界测试覆盖负数/空值/超大值 | 边界缺失 |
+| **D6** | 数据契约合规 | API 响应字段名/类型 vs 契约 Schema 一致性校验 | 数据契约漂移 |
+
+**A/B/C/D 缺陷分类标准**：
+
+```
+门禁发现问题
+  ├─ A类: 新代码引入的问题 → 必须100%修复，阻断交付
+  ├─ B类: 预先存在的遗留问题 → 按用户意愿修复
+  │   ├─ 用户选择"全部清理" → 进入遗留项清理流程
+  │   └─ 用户选择"只修新代码" → 记入基线文档，不阻断
+  ├─ C类: 行为预期问题 → 记录为基线，不修复
+  │   ├─ 认证要求（403/401）
+  │   ├─ 静态分析假阳性（变量实际已传递但分析器不识别）
+  │   └─ 无效路径回退行为
+  └─ D类: 非阻断警告 → 记录但允许交付（如硬编码初始值）
+```
+
+**自进化机制**：发现新的缺陷模式（非D1-D6覆盖的），写入 `defect_patterns.json` 注册表，分配 D编号，下次扫描自动包含新检测。
+
+**实现脚本**：`~/.hermes/scripts/quality_gate.py` — 6维扫描，输出 JSON 报告。在后续开发任务 Step 3→Step 4 之间运行。
 
 ### Phase 4.6: 遗留项分类与清理（新增）
 
@@ -372,6 +406,8 @@ python3 ~/edu-hub/quality_gate/run_quality_gate.py --system <系统ID> --task-id
 | `references/grading-field-mapping.md` | 判题函数字段映射不一致 — 多题型系统中答案字段与判题字段不匹配的检测与修复 |
 | `references/bilingual-content-quality-audit.md` | 双语内容数据质量审计 — cn==en 导致 en2cn 题型无声失效的检测与修复 |
 | `references/question-type-removal-pattern.md` | 从教育系统移除题型 — 六层重构检查清单（生成→判题→重练→模板→数据→死代码） |
+| `references/defect-pattern-registry.md` | 缺陷模式注册表 — 自进化门禁系统，包含 D001-D004 初始模式定义 |
+| `templates/quality_gate_template.py` | 6维质量门禁扫描脚本模板 — 可复制并扩展。生产级实现在 `~/.hermes/scripts/quality_gate.py`，已在 AI家庭教师项目验证（首扫描426项发现） |
 | `~/wiki/guides/development-testing-key-points.md` | 6 类开发/测试检查点 — 模板变量传递、标志消费链、五层数据流验证、题型分支测试等 |
 | `references/api-level-batch-scanner-pattern.md` | API层批量扫查模式 — 直接调后端引擎生成所有输出，程序化验证数据完整性 |
 

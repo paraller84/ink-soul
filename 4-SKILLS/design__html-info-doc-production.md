@@ -191,10 +191,44 @@ tags: [html, design, info-graphic, document, report, template]
 
 > 🔴 **路由规则**：所有生成的文档必须上传到飞书云盘 `Hermes生成文件` 对应的子目录。参照 `feishu-drive-directory-standard` 技能的6大板块目录结构确定目标位置。
 
-- 将 HTML 保存到 `~/.hermes/output/` 或指定位置
+- 将 HTML 保存到 `~/.hermes/output/` 或 `~/.hermes/cache/` 下
 - 上传到飞书云盘对应目录（见目录路由规则）
 - 分享给用户 + 发送链接到对话框
 - **两步缺一不可**：上传 + 发链接
+
+### Step 5b（可选）：PDF 输出
+
+当用户需要 PDF 版本（打印、分发、存档）时，遵循以下工作流：
+
+**⚠️ 关键陷阱**：`wkhtmltopdf`（v0.12.x）基于旧版 WebKit，**无法正确渲染暗色科技风主题**（SVG 不显示、黑色背景异常、布局错位）。**不能直接用暗色主题 HTML 转 PDF**。
+
+**正确流程**：
+
+1. **创建浅色打印版 HTML** — 从原始内容复制一份，替换为白底黑字主题：
+   - 背景 `#ffffff` → 文字 `#1a1a2e`
+   - 表格行交替色 `#f8f9fb` / `#ffffff`
+   - SVG 填充改为浅木色系（`#e8dcc8` / `#f0e6d4`），描边调整为深色（`#8b7355`）
+   - 移除渐变、阴影等 wkhtmltopdf 不支持的效果
+   - 可添加 `.page-break { page-break-before:always; }` 控制分页
+   - 参见 `references/print-theme-template.md` 获取完整主题模板
+
+2. **用 wkhtmltopdf 转换**：
+   ```bash
+   wkhtmltopdf --enable-local-file-access \
+     --page-size A4 \
+     --margin-top 10mm --margin-bottom 10mm \
+     --margin-left 8mm --margin-right 8mm \
+     --no-stop-slow-scripts \
+     /path/to/print-version.html \
+     /path/to/output.pdf
+   ```
+
+3. **上传 PDF** — 与 HTML 文档一起上传到同一飞书文件夹，作为配套文件。
+
+**为什么不直接用其他工具**：
+- `weasyprint`：依赖系统库较多，pip 安装经常超时（60s+）
+- 无头 Chromium：WSL 环境通常未安装
+- `python-pdfkit`：底层仍调用 wkhtmltopdf，无额外优势
 
 ## 常见陷阱
 

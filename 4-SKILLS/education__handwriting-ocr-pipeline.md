@@ -204,6 +204,51 @@ scrollWrap.addEventListener('scroll', function() {
 
 所有公共操作函数（`clearAllCells`, `recognizeAllCells`, `submitHwAnswer`, `updateSubmitBtn`）内部根据 `s.mode` 分支处理。
 
+### 逐格清除模式（✕ 按钮 — 2026-05-17 新增）
+
+每个手写格子下方新增独立清除按钮（✕），支持**逐格擦除**而非一次性清空全部：
+
+```html
+<!-- 每个 cell wrap 内 -->
+<div class="hw-wrap" style="position:relative;display:inline-block;">
+  <canvas class="hw-cell" data-idx="N"></canvas>
+  <div class="hw-cell-label" id="hwLabel_N">N+1</div>
+  <button class="hw-btn-clear-sm" id="hwClear_N"
+          style="display:none;position:absolute;top:-8px;right:-8px;
+                 width:22px;height:22px;border-radius:50%;border:none;
+                 background:rgba(255,80,80,0.85);color:#fff;font-size:12px;
+                 cursor:pointer;line-height:22px;text-align:center;z-index:5;">✕</button>
+</div>
+```
+
+**关键交互逻辑：**
+
+| 触发条件 | 行为 | 实现 |
+|---------|------|------|
+| 格子刚画出笔迹（end事件） | ✕ 按钮出现 | `showClearBtn(idx)` → `btn.style.display = 'inline-block'` |
+| 用户点击 ✕ 按钮 | 清除该格：清空canvas → `c.recognized=''` → `c.drawn=false` → label回到序号 | `clearCell(idx)` |
+| 清除全部按钮点击 | 清除所有格子 + 隐藏所有 ✕ 按钮 | `clearAllCells()` 中遍历 `hideClearBtn(i)` |
+| 格子重新画上笔迹 | ✕ 按钮重新出现 | 再次触发 end 事件 |
+
+**🔴 陷阱：`clearAllCells()` 必须同步清理逐格按钮**
+
+```javascript
+// ❌ 错误 — 只清了画布，按钮还露在外面
+function clearAllCells() {
+  cells.forEach(c => { c.ctx.clearRect(...); c.drawn = false; c.recognized = ''; });
+}
+
+// ✅ 正确 — 遍历隐藏所有逐格按钮
+function clearAllCells() {
+  cells.forEach((c, i) => {
+    c.ctx.clearRect(...); c.drawn = false; c.recognized = '';
+    hideClearBtn(i);  // ← 不能漏！
+  });
+}
+```
+
+**设计原理：** 三年级孩子在触摸屏上写字可能某笔没写好（占格不对/笔画歪了），此时视觉上看到格子下方的 ✕ 按钮可直觉地只擦那一格重写，而非全部清空重来。这符合儿童认知心理：**指哪打哪，不殃及他格**。
+
 ### CSS 层级
 
 ```css
@@ -364,10 +409,117 @@ Ollama 和云端 API 对 base64 的要求**不同**：
 3. 收集用户的修改意见 → 再做最终版本
 4. 最终版本固化前，**用户必须亲手试过**
 
+### Vision 模型 JSON 输出的健壮性陷阱（⚠️ 2026-05-17 关键修复）
+
+当要求 vision 模型返回 JSON 格式时（如 `{"char":"鬼","position_ok":true}`），模型可能输出**不合法的 JSON**：
+
+| 模型输出 | 问题 | `json.loads` 结果 |
+|----------|------|------------------|
+| `{"char":"鬼","position_ok":ture}` | `ture` 拼写错误 | ❌ 抛出异常 |
+| `{"char":"快","position_ok":fasle}` | `fasle` 拼写错误 | ❌ 抛出异常 |
+| `只输出：{"char":"中","position_ok":true}` | 带前缀文本 | ❌ 抛出异常 |
+| `{"char":"乐"` | 不完整 JSON | ❌ 抛出异常 |
+
+**错误的 fallback（原始代码）：**
+```python
+except (json_mod.JSONDecodeError, TypeError):
+    recognized = content  # ← 整段 JSON 字符串当成了汉字！
+    position_ok = True
+```
+
+这导致 `recognized` 变成 `{"char":"鬼","position_ok":ture}`，提交时与正确答案"鬼"不匹配 → 判错。
+
+**正确的 fallback（正则提取法）：**
+```python
+import re
+try:
+    parsed = json.loads(content)
+    recognized = parsed.get('char', '')
+    position_ok = parsed.get('position_ok', True)
+except (json_mod.JSONDecodeError, TypeError):
+    # 正则提取 char 字段值（容错 ture/fasle 等笔误）
+    m = re.search(r'["\']char["\']\s*:\s*["\']([^"\']+)["\']', content)
+    recognized = m.group(1) if m else content
+    # 同时容错提取 position_ok
+    m2 = re.search(r'["\']position_ok["\']\s*:\s*(true|false|ture|fasle|True|False)', content, re.IGNORECASE)
+    position_ok = m2.group(1).lower() in ('true', 'ture') if m2 else True
+```
+
+**原则：** 任何要求 LLM/vision 模型输出 JSON 的场景，都不能只依赖 `json.loads()`。必须加一层正则兜底。常见的拼写错误包括：
+
+| 正确 | 可能错误 |
+|------|---------|
+| `true` | `ture`, `treu`, `True` |
+| `false` | `fasle`, `flase`, `False` |
+| `null` | `nil`, `none` |
+
 ### 集成到练习系统
 - 填空题用手写板，选择题保持选项点击
 - 提交时 `answer` 字段存**识别结果文字**，不是图片
 - 出题引擎模板必须显式传递 `answer` 和 `choices`，否则 `correct_answer` 和 `answer_choices` 会为空
+
+## 田字格 + 位置质量评估（v3 — 2026-05-17 新增）
+
+### 田字格实现
+
+每个 Canvas 格子绘制 **米字格**（田字格 + 对角线虚线），使用 `ctx` 直接画在 Canvas 上（而非 CSS background）：
+
+```javascript
+function drawTianZiGe(ctx, w, h) {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(180, 180, 200, 0.5)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(w, h); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(w, 0); ctx.lineTo(0, h); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+```
+
+**关键集成点：**
+- `initHw()` 中每个 Canvas 创建后调用 `drawTianZiGe(ctx, cellW, cellH)`
+- `clearCell()` / `clearAllCells()` 的 `clearRect` 后重绘
+- Canvas 尺寸改为正方形 260×260（手机端 150×150）
+
+### 书写位置质量评估
+
+将 田字格 背景与手写笔画一同发送到 OCR API，修改提示词让模型同时评估位置质量：
+
+```
+图中田字格内手写的是什么汉字？判断该字是否书写位置正确
+（笔画大致在田字格中央，不过于偏左偏右偏上偏下，大小不过分偏小）。
+只返回JSON格式：{"char":"识别的汉字","position_ok":true/false}
+```
+
+**API 响应新增字段：** `position_ok: boolean`
+
+### 前端处理
+
+| 场景 | 表现 |
+|------|------|
+| 文字正确 + 位置正确 | 绿色标号 `字` |
+| 文字正确 + 位置偏 | 橙色标号 `字 ⚠️位置偏` |
+| 提交时位置偏 | `alert` 阻止提交，提示重写 |
+| 清除后 | `position_ok` 重置为 `true` |
+
+### 流程示意
+
+```
+用户写"好"字在田字格偏右上角
+→ Canvas 截图（含田字格虚线）
+→ Qwen-VL-OCR 识别：位置偏右 → position_ok: false
+→ 前端显示 "好 ⚠️位置偏"（橙色）
+→ 提交时拦截，alert 提示用✕清除重写
+```
+
+### 实现注意事项
+
+- 田字格用 `ctx.draw` 而非 CSS background：CSS gradient 无法绘制对角线
+- `clearCell` / `clearAllCells` 必须重置 `c.position_ok = true` 和 `label.style.color = ''`
+- 本地降级模型（qwen3-vl:8b）JSON 输出不稳定，设 fallback `position_ok = True`
 
 ## 参考
 
