@@ -1056,7 +1056,46 @@ When a function signature changes (e.g., `get_knowledge_graph(student_id)` becom
 
 **Prevention:** When changing a function signature, `grep -rn 'function_name('` across ALL route files, service files, and templates to find every caller.
 
-35. **SQL `json_each()` column reference error — `t.name` doesn't exist**
+35. **Stale background Flask process — hot-reload fails because old process still holds the port**
+
+When Flask is started with `debug=True` (hot-reload enabled), file changes trigger an auto-restart. But this only restarts the **last-started** process. If a stale process from an earlier session (e.g., morning's background start) is still running, it continues serving the old code on the same port.
+
+**Scenario in Hermes + WSL:** 
+- 08:39 — `terminal(background=true)` starts Flask. Process A (old code) holds port 5003.
+- 22:29 — You make code changes via Aider/patches. A NEW `terminal(background=true)` starts Flask. Process B starts with new code, but hot-reload detection means Process B restarts itself — Process A (old) still holds port 5003.
+- User accesses → Process A serves old page → "还是老的页面"
+
+**Diagnosis — check for multiple processes:**
+```bash
+ps aux | grep "python app.py" | grep -v grep
+# If you see 2+ lines, there are stale processes
+ss -tlnp | grep <port>
+# Shows which PID holds the port
+```
+
+**Fix — kill ALL instances and restart:**
+```bash
+pkill -f "python app.py"          # nuclear option: kills ALL python app.py processes
+sleep 1
+ss -tlnp | grep <port> || echo "Port free"
+# Then restart via terminal(background=true)
+```
+
+**Why pkill works better than individual kills:** `pkill -f "python app.py"` matches ALL processes whose command-line contains "app.py" — both the `sh -c` wrapper (from cron @reboot) and the Python interpreter. Individual `kill <PID>` may miss the wrapper.
+
+**Prevention — before expecting hot-reload to work, verify only ONE process exists:**
+```bash
+ps aux | grep -c "python app.py" | grep -v grep
+# Should be 1. If >1, pkill first.
+```
+
+**After the fix, verify content is fresh:**
+```bash
+# Check a specific page element that should have changed
+curl -s http://localhost:5003/parent/dashboard | grep -c 'new-feature-class'
+```
+
+36. **SQL `json_each()` column reference error — `t.name` doesn't exist**
 
 When using `json_each()` to iterate over a JSON object, the virtual table has `key`, `value`, `type` columns — NOT the nested object's field names. Referencing `t.name` or `t.icon` raises `no such column`.
 

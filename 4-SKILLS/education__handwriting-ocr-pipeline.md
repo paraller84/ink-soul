@@ -131,13 +131,84 @@ def handwriting_recognize():
 
 ## 题目适配
 
-| 题型 | 手写板配置 |
-|------|-----------|
-| 单字填空 ("床前明___光") | 1格手写板，返回1个字 |
-| 看拼音写词语 (zhōng guó) | 2-4格 → 模式A单行 |
-| 反义词/近义词 | 1格手写板，写答案字 |
-| 古诗默写 (多字) | 5字+ → 模式B/C/D 自适应 |
-| 句子填空 | ≥15字 → 模式D全画布 |
+| 题型 | 手写板配置 | 拼音/Label 显示 |
+|------|-----------|----------------|
+| 单字填空 ("床前明___光") | 1格手写板，返回1个字 | 无拼音，格子标号 1 |
+| 看拼音写词语 (zhōng guó) | 2-4格 → 模式A单行 | **每个格子上方显示拼音音节**（liáng | shuǎng），下方标号 |
+| 写汉字 (kě ài → 可爱) | per-char cells | **同看拼音写词语**，拼音上方 |
+| 选词组句 | per-char cells | 每个格子上方显示可选字/序数 |
+| 反义词/近义词 | 1格手写板，写答案字 | 无拼音，格子标号 1 |
+| 古诗默写 (多字) | 5字+ → 模式B/C/D 自适应 | 若为填空则标序数，若为拼音提示则拼音上方 |
+| 句子填空 | ≥15字 → 模式D全画布 | 无拼音 |
+
+### 拼音音节标签（看拼音写词语 · 2026-05-17 新增）
+
+**之前的问题**：`q-text` 显示拼音为整块文本 `"看拼音写词语：liáng shuǎng"`，学生需自行判断音节与格子的对应关系 → 三年级认知负担大。
+
+**改进后效果**：
+```
+看拼音写词语
+liáng     shuǎng     ← 每个格子上方独立的拼音标签
+┌──────┐  ┌──────┐
+│      │  │      │
+│ 格1  │  │ 格2  │
+│      │  │      │
+└──────┘  └──────┘
+  1          2       ← 格子标号（保持原样）
+```
+
+**数据流（后端 → 模板 → JS）**：
+
+```
+library_service.py:get_schedule_detail()
+  └── 解析 question_text 中 "：" 后的拼音部分
+      └── pinyin_part.split() → ["liáng", "shuǎng"]
+          └── q['pinyin_syllables'] = [...] ← 新增字段
+
+template (schedule_practice.html)
+  └── <div id="hwCells" data-pinyin='{{ ...|tojson }}'>
+      └── Jinja: {{ question.pinyin_syllables|tojson }}
+
+JavaScript initHw()
+  └── var pinyinList = JSON.parse(container.dataset.pinyin)
+  └── for each cell i:
+        if (pinyinList[i]) {
+          var pyLabel = document.createElement('div');
+          pyLabel.className = 'hw-pinyin-label';  ← 蓝色加粗的拼音标签
+          pyLabel.textContent = pinyinList[i];
+          wrap.appendChild(pyLabel);  ← 插入在 canvas 之上、wrap 之内
+        }
+```
+
+**CSS**：
+```css
+.hw-pinyin-label {
+  font-size: 1rem; font-weight: 700; color: var(--primary);
+  text-align: center; min-height: 1.5rem; margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+```
+
+**各题型的标签策略对比**：
+
+| 题型 | 上方标签 (pyLabel) | 下方标号 (cellLabel) |
+|------|-------------------|-------------------|
+| `pinyin_to_word` | 拼音音节 s[i] | 序号 (i+1) |
+| `write_char (写汉字)` | 拼音音节 s[i] | 序号 (i+1) |
+| `fill_blank` (无pinyin) | 无 | 序号 (i+1) |
+| `word_comp (组词)` | 可选字序号 | 序号 (i+1) |
+
+**验证方式**（重要工作流）：
+
+修改模板后，不要只靠 curl/终端验证。必须用浏览器实际渲染检查：
+1. `browser_navigate()` → 加载目标页面
+2. `browser_console({expression: 'JSON.stringify({"labels":Array.from(document.querySelectorAll(".hw-pinyin-label")).map(el=>el.textContent), "data-pinyin":document.getElementById("hwCells")?.dataset.pinyin})'})` → 确认标签生成正确
+3. 手动读 `.q-text` → 确认移除了重复的拼音文字
+
+**🔴 陷阱**：
+- Jinja `|tojson` 会自动转义 Unicode（如 `"liáng"` → `"li\\u00e1ng"`），这是预期的 — `JSON.parse` 在 JS 侧会正确解码
+- `fill_blank` 题型不应有拼音标签，需确保 `pinyin_syllables` 为空数组时不渲染标签
+- 当 `question_type` 不是 `pinyin_to_word` 时，`q-text` 应回退到 `{{ question.question_text }}`（完整显示）
 
 ## 4级自适应布局（v2.1 — 2026-05-16 新增）
 
@@ -528,3 +599,4 @@ function drawTianZiGe(ctx, w, h) {
 - 出题引擎: `services/practice_engine.py`
 - 参考文件: `references/handwriting-demo-session.md` — 首次实现记录
 - 参考文件: `references/session-20260516-cloud-grid-updates.md` — 云端/逐字格子版本更新
+- 参考文件: `references/template-verification-workflow.md` — 修改模板后的浏览器验证工作流（三步检查法）

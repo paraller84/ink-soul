@@ -151,6 +151,8 @@ if data.get("code") == 0:
 - `references/existing-groups.md` — 已建群聊清单（chat_id、用途、操作记录）
 - `references/at-mention-gate-code-fix-20260512.md` — @提及门控逻辑修复记录（Gateway 代码修改详情）
 - `references/department-role-design.md` — 部门负责人角色设计、决策层级、联动关系（v1.0 2026-05-15）
+- `references/docx-api-quirks-session-20260516.md` — docx API 调试记录
+- `references/chinese-inline-string-workaround.md` — 中文内联字符串的语法规避方案（Python inline 代码块的 SyntaxError 陷阱）
 
 ## 🏢 职能部门化架构（v3.0 — 2026-05-15）
 
@@ -629,3 +631,109 @@ class FeishuChatGroupManager:
         resp = requests.get(f"{BASE}/im/v1/chats/{chat_id}", headers=self.headers, timeout=10)
         return resp.json()
 ```
+
+---
+
+## 📄 飞书文档内容创建（Docx API）
+
+> 本节整合自 `feishu-docx-content-creation` skill（已归档）。覆盖通过 Feishu Open API 创建结构化文档、添加内容块、管理文档内容的完整工作流。与前面群聊管理共用同一套 token 认证体系。
+
+### 一、整体流程
+
+```
+1. 获取 tenant_access_token（复用群聊管理的认证流程）
+2. （如需归档到已有文件夹）导航到目标文件夹获取 folder_token
+3. 创建空白文档 → 获取 document_id
+4. 通过 blocks API 批量添加内容（heading1–3, text）
+5. 验证文档内容完整
+6. 构造文档 URL 交付给用户
+```
+
+### 二、关键 API 端点
+
+| 操作 | HTTP | 端点 |
+|------|------|------|
+| 创建文档 | POST | `/open-apis/docx/v1/documents` |
+| 获取文档内容 | GET | `/open-apis/docx/v1/documents/{doc_id}/raw_content` |
+| 批量添加块 | POST | `/open-apis/docx/v1/documents/{doc_id}/blocks/{block_id}/children` |
+| 批量删除块 | DELETE | `/open-apis/docx/v1/documents/{doc_id}/blocks/{block_id}/children/batch_delete` |
+| 查询文件夹子项 | GET | `/open-apis/drive/explorer/v2/folder/{token}/children` |
+
+> ⚠️ **关键陷阱**：添加子的正确端点是 `/children`（POST），**不是** `/children/batch_create`（后者返回 404）。
+
+### 三、支持的块类型
+
+| block_type | key | 说明 |
+|:----------:|:----|:-----|
+| 1 | `page` | 页面根块（文档自动创建） |
+| 2 | `text` | 普通段落 |
+| 3 | `heading1` | 一级标题 |
+| 4 | `heading2` | 二级标题 |
+| 5 | `heading3` | 三级标题 |
+
+**不支持的类型**：bullet (27)、divider (17) 等返回 1770001 (invalid param)。替代方案：bullet 用 text block 前加 `•`，divider 用 `─`。
+
+### 四、创建文档步骤
+
+#### Step 1: 创建空白文档
+
+```python
+r = requests.post("https://open.feishu.cn/open-apis/docx/v1/documents",
+    headers={"Authorization": f"Bearer {TOKEN}"},
+    json={"title": "文档标题", "folder_token": "目标文件夹token"})
+doc_id = r.json()["data"]["document"]["document_id"]
+```
+
+- `folder_token` 可选，不传则创建在根目录
+- 返回的 `document_id` 同时也是根 page block 的 `block_id`
+
+#### Step 2: 批量添加内容块
+
+```python
+payload = {
+    "children": [
+        {"block_type": 4, "heading2": {
+            "elements": [{"text_run": {"content": "标题文本", "text_element_style": {"bold": False}}}],
+            "style": {}
+        }},
+        {"block_type": 2, "text": {
+            "elements": [
+                {"text_run": {"content": "加粗部分", "text_element_style": {"bold": True}}},
+                {"text_run": {"content": "普通部分", "text_element_style": {"bold": False}}}
+            ],
+            "style": {}
+        }},
+    ],
+    "index": 0  # 0=追加到末尾
+}
+r = requests.post(
+    f"https://open.feishu.cn/open-apis/docx/v1/documents/{doc_id}/blocks/{doc_id}/children",
+    headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+    json=payload
+)
+```
+
+#### Step 3: 构造文档 URL
+
+文档 URL 格式：`https://{tenant_prefix}.feishu.cn/docx/{doc_id}`
+
+### 五、目录导航
+
+```python
+# 获取顶层文件列表
+r = requests.get("https://open.feishu.cn/open-apis/drive/v1/files?page_size=50",
+    headers={"Authorization": f"Bearer {TOKEN}"})
+```
+
+> ⚠️ `drive/v1/folders/{token}/children` 返回 404，需使用 `drive/explorer/v2/folder/{token}/children`。
+
+### 六、常见陷阱
+
+1. **app_secret 特殊字符**：含 `'` 等字符时，shell 中 curl 的 `-d '...'` 可能出错。用 Python requests 库或 `@file.json`。
+2. **block payload 格式**：每个块必须包含 `block_type` 和对应的类型 key（type=2 → `text`，type=3 → `heading1` 等）。
+3. **多块一次性提交**：children 数组支持一次创建多个块，已验证 24 个块单次 API 成功。
+4. **Python True/False**：必须用 `True`/`False`（大写），不能用 `true`/`false`（JS 风格）。
+5. **文档 token 漂移**：飞书文件夹 token 会随操作漂移，使用前应通过列表 API 重新获取。
+6. **`upload_all` 对 HTML 文件不可靠**：上传 .html 返回 success 但不出现于文件列表。应创建 docx 文档。
+7. **中文内联字符串语法陷阱**：Python 代码中的中文引号/特殊字符（`·`、`「」`）可能导致 SyntaxError。缓解方案：将 JSON/payload 写入独立文件再读取。
+8. **`index` 参数**：`index: 0` 表示追加到末尾。也可指定位置插入。

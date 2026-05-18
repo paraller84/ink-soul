@@ -122,6 +122,7 @@ Layer 3 — 质量约束
 > ⚠️ **cn_highlight_words 的可执行性**：此类型依赖**彩色背景检测能力**。Qwen-VL-OCR（默认模型）无法识别彩色标记。必须使用 **Qwen3-VL-Plus**（DashScope，¥0.0017/张）或本地 **qwen3-vl:8b**（Ollama，慢但免费）配合**不压缩的原图PNG**才能正确检测。已在 `cloud-vision-integration` skill 中记录完整的多模型协作模式。已批量验证27张课本照，381个彩底词检测成功。
 | `en` | 英语单词 | `words[{word,meaning,phonetic}]` | — | 英语课本单词表 | ⬇ | ❌ | ✅ | ✅ | ⚪ |
 | `correct` | 作业批改 | `[{question,answer,is_correct}]` | — | 拍照批改 | ❌ | ❌ | ⚪ (不入DB) | ⚪ | — |
+| `exam_paper` | 考试试卷 | `{title, semester, sections[{section_name, questions[{type, number, text, student_answer, correct_answer, choices?, score}]}]}` | — | 拍照导入试卷→exam_*表 | ⬇ | ❌ | ⚪ | ⚪ | ⚪ |
 
 > ⚠️ **前端缺口**：上表显示后端实现了 10 种类型（含 en/correct），但 `photo_import.html` 前端只暴露了 4 种按钮（shengzibiao/cn_recog/cishu/en）。其余 5 种新类型（cn_write/cn_words/write_char/word_comp/cn_highlight_words）有完整后端逻辑但家长无法在 UI 中选择。type-btn 网格需要补充按钮才能完整使用。
 >
@@ -588,3 +589,374 @@ Step 2 — 定向精提取（确认后执行）
 2. **提取条件** — 有颜色分类意义吗？还是只看标记有无？（颜色不重要）
 3. **产出范围** — 用户只想要提取的主产物？还是连带上下文也要保留？（双轨可能优于单轨）
 4. **锚点选择** — 提取的信息中哪个字段是最稳定可靠的？（页码>课名>猜测）
+
+---
+
+## 十六、内容类型数据模型（含出题逻辑）
+
+> 本章节整合自 `chinese-content-architecture` skill（已归档）。覆盖内容类型分类、数据模型字段定义、文本导入格式、出题引擎过滤逻辑。与本章节中的提示词设计构成完整的内容输入→存储→出题链路。
+
+### 1. 内容类型分类（含考核方式）
+
+| 编号 | 内容类型 | 考核方式 | 导入方式 | 练习题型 |
+|:----:|:---------|:---------|:---------|:---------|
+| 1 | 会认字(recognize) | 看字写拼音 | 拍照/文本 | `char_to_pinyin` |
+| 2 | 会写字(write) | 看拼音写字 | 拍照/文本 | `pinyin_to_char` + `meaning_to_char` |
+| 3 | 试卷(exam) | 综合 | 拍照 | 自动拆解分流到各类型 |
+| 4 | 背诵诗词(poem) | 默写/填空 | 拍照/文本 | `poem_fill` + `poem_full` |
+| 5 | 阅读理解(reading) | 文章+问题 | 拍照/文本 | 选择题/判断题/简答题 |
+
+### 2. 数据模型（content.json 字段定义）
+
+**characters 字段** — 核心原则：数据字段必须与提示词输出字段一一对应。
+
+```json
+{
+  "char": "存",
+  "pinyin": "cún",
+  "recognition_type": "recognize",     // "recognize" | "write"
+  "word_examples": [
+    {"word": "生存", "pinyin": "shēng cún"},
+    {"word": "存款", "pinyin": "cún kuǎn"}
+  ],
+  "source": "photo_import"
+}
+```
+
+| 提示词输出 | 对应字段 | 说明 |
+|:----------|:--------|:-----|
+| 核心汉字 | `char` | ✓ |
+| 汉字拼音 | `pinyin` | ✓ |
+| 组词及拼音 | `word_examples[]` | ⚠️ 旧字段 `meaning` 只存文字，丢失拼音 |
+| 会认/会写归属 | `recognition_type` | 由前端分类选择 + 提示词共同决定 |
+
+**向后兼容**：旧 `content.json` 的无 `recognition_type` 字段的字默认视为 `"write"`（全题型出题）。
+
+**poems 字段**：
+```json
+{
+  "title": "静夜思",
+  "author": "李白",
+  "dynasty": "唐",
+  "text": "床前明月光，疑是地上霜。举头望明月，低头思故乡。"
+}
+```
+
+**readings 字段**：
+```json
+{
+  "title": "金色的草地",
+  "passage": "我们住在乡下，窗前是一大片草地……",
+  "questions": [
+    {"id": 1, "text": "草地为什么是金色的？", "type": "choice|short|judge", "answer": "..."}
+  ],
+  "difficulty": "⭐⭐",
+  "source": "photo_import"
+}
+```
+
+### 3. 文本导入格式（`import_from_text()`）
+
+适用于手动粘贴和家长编写的结构化文本：
+
+```
+课时: Y3U1
+标题: 第一课
+会认字: 晨-chén-早晨(zǎo chén),绒-róng-绒毛(róng máo)
+会写字: 付-fù,出-chū
+生字: 旧-jiù (backward compat)
+词语: 早晨-zǎo chén
+古诗: 静夜思-唐-李白-床前明月光
+```
+
+**关键规则**：
+- `会认字:` 和 `会写字:` 使用 **追加模式**（`+=`），同一课时内可以共存
+- `生字:` 使用 **覆盖模式**（`=`），兼容旧导入行为
+- 顺序：先出现的类型先处理，后出现的追加，除非碰到 `生字:` 则覆盖
+
+### 4. 出题引擎过滤逻辑
+
+```python
+def generate_questions(characters, student_id, batch_id, count=12):
+    for c in selected:
+        recognition_type = c.get("recognition_type", "")
+
+        if recognition_type == "recognize":
+            qtype = "char_to_pinyin"          # 会认字→只看字写拼音
+        elif recognition_type == "write":
+            r = random.random()
+            qtype = "pinyin_to_char" if r < 0.6 else "meaning_to_char"  # 会写字
+        else:
+            qtype = random.choice(["char_to_pinyin", "pinyin_to_char", "meaning_to_char"])
+```
+
+**频次模型不受影响** — 所有字符共用同一套 error_count → freq_level 逻辑，区别只在题型范围。
+
+### 5. 旧数据标准化（兼容性）
+
+```python
+def normalize_character(char: dict) -> dict:
+    result = dict(char)
+    if "recognition_type" not in result or not result["recognition_type"]:
+        result["recognition_type"] = "write"  # 旧数据视为会写字
+    if "word_examples" not in result:
+        result["word_examples"] = []
+    if not result["word_examples"] and char.get("meaning"):
+        result["word_examples"] = [{"word": char["meaning"], "pinyin": ""}]
+    return result
+```
+
+所有读取数据的接口必须在返回前调用 `normalize_character()`。
+
+### 6. 拍照导入不走文本解析
+
+拍照导入直接调用 `upsert_batch(characters=characters)`，**不经过** `import_from_text()` 的文本解析层。
+
+---
+
+## 十七、考试试卷 OCR（新增内容类型）
+
+### 与课本 OCR 的核心差异
+
+| 维度 | 课本 OCR（shengzibiao/cn_recog 等） | 试卷 OCR（exam_paper） |
+|:-----|:-----------------------------------|:----------------------|
+| 内容结构 | 单一类型统一排版（生字表/词语表） | 混合多题型（选择/填空/阅读/作文） |
+| 数据类型 | 结构化字词 | 题干+选项+答案+评分 |
+| 主观答案 | 无（纯数据提取） | 有手写答案（需保留原样） |
+| 页码关系 | 单页独立 | 双面关联（正面→背面） |
+| OCR 输出 | JSON 数组，可严格校验 | 自由文本+结构化混合 |
+| 幻觉风险 | 低（有格式约束） | **高**（阅读理解段落易编造） |
+
+### 典型试卷结构
+
+```
+2025学年（下）三年级语文三四单元综合练习
+姓名：___  学号：___
+
+一、基础知识
+  1. 看拼音，写词语。     → pinyin_to_word 型
+  2. 选读音相同的一项    → 选择题 (A/B/C/D)
+  3. 选有错别字的一项    → 选择题
+  4. 选最合适的开头      → 选择题
+  5. 选正确语句填入      → 选择题
+  6. 课文内容填空         → fill_blank 型
+  7. 修改病句              → 主观题
+  8. 按要求改句子          → 主观题
+
+二、阅读芳草地
+  （一）短文标题          → 阅读理解（含短文正文+子小题）
+  （二）短文标题          → 阅读理解
+
+三、作文（如有）
+```
+
+### 试卷 OCR 的两步走策略
+
+第一步：提取卷面结构（宽泛描述）
+```
+"请描述这张试卷的：
+1. 试卷标题、姓名学号区域
+2. 所有大题标题（一、二、三...）及包含的小题号
+3. 每个小题的题型（选择题/填空题/问答题/阅读题）
+4. 选择题的选项（A/B/C/D）
+5. 学生手写的答案内容（保留原样）
+6. 页码数字"
+```
+
+第二步：分类定向精提取（按题型分别处理）
+```
+对于选择题：提取题干+4个选项+学生所选答案
+对于填空题：提取题干空格+学生填写内容
+对于阅读理解：提取短文原文+每个问题+学生答案
+对于作文：提取题目+学生全文（如有）
+```
+
+### 已知陷阱
+
+**陷阱1：阅读理解段落幻觉（必须警惕）**
+Qwen-VL-OCR 在处理阅读理解短文时，常常「补充」原文中没有的文字。表现：OCR 输出的短文内容比真实试卷长数倍，含大量编造的推理文字。例如：「耳朵上的茧」阅读题输出了一段关于莱斯·布朗生平的长篇虚构。
+
+**缓解策略**：
+- 两步提取：第一步只提取题号+题目文本（不提取短文），第二步用单独调用提取短文原文
+- 长度约束：在提示词中加「只输出试卷上可见的文字，不要补充」
+- 后续比对：对阅读理解短文用课文正文数据源做校对（如果课文已在 lesson_texts 中）
+
+**陷阱2：选项提取不完整**
+试卷选择题的 A/B/C/D 选项因排版紧凑，OCR 可能漏提取中间选项。缓解：在提示词中明确要求「一一列出每个选项的全部文字，包括 A. B. C. D. 前缀」
+
+**陷阱3：手写答案覆盖题干文字**
+学生手写答案可能覆盖印刷体文字，导致 OCR 混淆「题干」和「答案」。缓解：以「手写区域位置」判断哪个是答案（通常在横线/括号/空格内）。
+
+**陷阱4：双面文档关联**
+正反面照片可能独立导入，需通过「试卷标题+姓名学号」关联两面。缓解：导入时要求用户先选择正面照片，再选背面照片，由同一 paper_id 关联。
+
+**陷阱5：批改标记干扰**
+教师用红笔打的 ✓/✗/半对标记，OCR 可能误读为文字笔画。缓解：OCR 阶段不要求批改标记识别，由后续服务层从 is_correct 字段逻辑判断。
+
+### 内容类型 output_schema
+
+```json
+{
+  "type": "exam_paper",
+  "title": "2025学年（下）三年级语文三四单元综合练习",
+  "semester": "3下",
+  "sections": [
+    {
+      "section_name": "一、基础知识",
+      "section_number": 1,
+      "questions": [
+        {
+          "number": 1,
+          "type": "pinyin_to_word",
+          "text": "看拼音，写词语。",
+          "sub_items": [
+            {"pinyin": "shì jìng", "answer": "设计"},
+            {"pinyin": "shí qiáo", "answer": "石桥"}
+          ]
+        },
+        {
+          "number": 2,
+          "type": "choice",
+          "text": "下列加点字的读音完全相同的一项是（  ）",
+          "choices": ["A. 切菜", "B. 积累", "C. 笼子", "D. 新鲜"],
+          "correct_answer": "C",
+          "student_answer": "C"
+        }
+      ]
+    },
+    {
+      "section_name": "二、阅读芳草地",
+      "section_number": 2,
+      "subsections": [
+        {
+          "title": "（一）耳朵上的茧",
+          "passage_text": "莱斯·布朗是美国知名演说家...",
+          "questions": [
+            {"number": 1, "text": "莱斯·布朗知道儿子生病后做了什么？", "student_answer": "..."}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 适用于场景
+
+| 用途 | 提取重点 | 忽略内容 |
+|:-----|:---------|:---------|
+| 入库出题 | 看拼音写词语+课文填空+阅读理解题目 | 作文题、手写审阅标记 |
+| 错题本 | 学生答错的选择题+填空问答题 | 阅读短文正文（已存在） |
+| 家长专项练习 | 按题型选同类题出卷 | 试卷元数据 |
+| 综合分析 | 全部题型+分数分布 | — |
+
+---
+
+## 十八、云端视觉API集成
+
+> 本章节整合自 `cloud-vision-integration` skill（已归档）。覆盖阿里云百炼 Qwen-VL-OCR 和 Qwen3-VL-Plus 的接入模式、定价和多模型协作策略。
+
+### 核心架构模式：云端优先，本地回退
+
+```
+拍照 →
+  客户端品质质检（canvas检测模糊/亮度/倾斜，不上传）→
+  云端API主通道（~1s）→
+  失败时回退本地Ollama（~60-120s）→
+  结构化结果返回
+```
+
+### 阿里云百炼 Qwen-VL-OCR
+
+| 项目 | 值 |
+|:-----|:---|
+| 模型名 | `qwen-vl-ocr-latest` |
+| Base URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| API格式 | OpenAI 兼容 |
+| 认证 | Header: `Authorization: Bearer {DASHSCOPE_API_KEY}` |
+| 图片参数 | `min_pixels: 32*32, max_pixels: 32*32*2048` |
+| 新用户免费 | 7,000万 Tokens（约3万张照片） |
+
+### 定价对比
+
+| 模型 | 输入价格 | 典型单张成本 |
+|:-----|:---------|:------------|
+| Qwen-VL-OCR | **¥6/百万 Tokens** | ≈ ¥0.014/张（~2,125 input + ~200 output） |
+| Qwen3-VL-Plus | **¥2/百万 Tokens** | ≈ ¥0.0017/张 |
+| GLM-4.6V-Flash | 完全免费 | ¥0（智谱AI，通用视觉） |
+| 豆包Seed-1.6-vision | ¥0.8/百万输入 | 有每日50万免费额度 |
+
+### 多模型协作模式
+
+#### 场景：彩色背景词语检测
+
+Qwen-VL-OCR 不识别彩色背景标记（课本高亮词语）。需要配合颜色识别模型：
+
+| 职责 | 模型 | 特长 | 成本 |
+|:-----|:-----|:-----|:----|
+| 常规文字提取 | Qwen-VL-OCR | 快速文本识别（~1s/张） | ¥0.014/张 |
+| 彩色标记检测 | Qwen3-VL-Plus | 可分辨粉色/黄色/蓝色背景的词语 | ¥0.0017/张 |
+
+**架构模式**：双轨并行 — 先 Qwen-VL-OCR 提取全文，再用 Qwen3-VL-Plus 检测有背景色的词语。两条结果通过 `page_number` 字段关联。
+
+### API 调用示例（原生 urllib）
+
+```python
+import json, urllib.request
+
+body = {
+    "model": "qwen-vl-ocr-latest",
+    "messages": [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {
+                "url": f"data:image/jpeg;base64,{compressed_b64}",
+                "min_pixels": 32*32,
+                "max_pixels": 32*32*2048,
+            }},
+        ]
+    }],
+    "max_tokens": 2048,
+    "temperature": 0.1,
+}
+
+req = urllib.request.Request(base_url, data=json.dumps(body).encode("utf-8"),
+    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    method="POST")
+resp = urllib.request.urlopen(req, timeout=60)
+result = json.loads(resp.read())
+text = result["choices"][0]["message"]["content"]
+```
+
+### 关键陷阱
+
+1. **图片压缩策略**：Qwen-VL-OCR 建议 JPEG 1024px@85%；Qwen3-VL-Plus 需要 PNG 原图（不压缩）以保留颜色细节
+2. **系统提示词合并**：Qwen-VL-OCR 不支持 `system` 角色，必须将 System Prompt 拼入 User 的 text
+3. **JSON 输出要求**：提示词必须说明"只输出JSON，不要额外文字"
+4. **API Key 加载**：terminal() 的 Python 子进程不自动 source `~/.bashrc`，需要在代码中备选读取
+5. **中文渲染测试**：PIL 默认字体不渲染中文，需指定字体（如 `wqy-zenhei.ttc`）
+
+### 颜色检测提示词模板
+
+```python
+PROMPT_COLORED_WORDS = """你是一个语文课本彩色标记词语提取器。
+请分析这张课文图片：
+1. 提取课文全文
+2. 注意页面上**有颜色背景（粉色/黄色/蓝色等）**的词语
+3. 只输出JSON格式，不要额外文字
+
+输出格式：
+{
+    "type": "cn_highlight_words",
+    "lesson_title": "课文标题",
+    "lesson_number": 课号,
+    "page_number": 页码数字,
+    "source_text": "完整课文文字",
+    "words": ["词语1", "词语2", "词语3"]
+}"""
+```
+
+### 参考文件
+
+- `references/aliyun-bailian-pricing.md` — 阿里云百炼官方价格详情

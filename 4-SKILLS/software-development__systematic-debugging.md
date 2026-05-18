@@ -384,6 +384,58 @@ The entire `<script>` block may have a syntax error that prevents parsing. Since
    - [ ] Use template literals (backticks) for complex HTML-building strings that contain `'` or `"`
    - [ ] After fix, restart Flask app AND verify browser loads correctly (trap: template cache)
 
+### 9a. Browser Console Fix-Before-Write Workflow
+
+**When you've found a JS syntax error in an inline `<script>` via `new Function()` bisection (section #9), use the browser console to test fixes in-memory before writing to disk:**
+
+```javascript
+// 1. Read the raw script and apply the fix in-memory
+var src = document.querySelector('script').textContent;
+src = src.replace('bad_code_here', 'fixed_code_here');
+
+// 2. Validate the fix
+try {
+    new Function(src);
+    console.log('FIX CONFIRMED - no syntax errors');
+} catch(e) {
+    console.log('STILL BROKEN:', e.message);
+}
+
+// 3. If confirmed, write the same replacement to the source file
+```
+
+**This avoids the edit-flush-restart cycle during debugging.** Only write to disk when the browser confirms the fix.
+
+### 9b. Flask Template Cache Trap
+
+**When the JS fix has been applied to the template file but the browser still shows the old (broken) behavior:**
+
+Flask caches templates in production mode (`debug=False`). The running server process holds the old version in memory. The fix won't take effect until the Flask process is restarted.
+
+**Restart steps:**
+```bash
+# 1. Kill all Flask/WSGI processes on the port
+pkill -f "python3 app.py"    # Adjust pattern as needed
+
+# 2. Wait for the port to free
+lsof -i :5002                # Should show nothing
+
+# 3. Restart the Flask app
+cd ~/edu-hub && python3 app.py > /dev/null 2>&1 &
+
+# 4. Verify new content is served
+curl -s http://localhost:5002/quiz/ | grep -c "FIXED_PATTERN"
+```
+
+**Alternative (if Flask is behind a process manager):**
+```bash
+sudo systemctl restart flask-app    # Systemd service
+# or
+pm2 restart flask-app               # PM2 process manager
+```
+
+**Trap to remember:** A `write_file` or `patch` to a template file does NOT refresh a running Flask instance. You must always restart the server process for template changes to take effect in production mode.
+
 ### 10. Silent Rendering Collapse — Data Vanishes in the Pipeline
 
 **WHEN the user reports that the UI renders with NO interactive elements (no input fields, no choice buttons, no submit button), yet the page loads with a question text and blank space where controls should be:**

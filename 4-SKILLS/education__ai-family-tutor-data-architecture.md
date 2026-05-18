@@ -144,6 +144,50 @@ practice_schedule（计划 — 哪天做哪个库）
 ```
 
 #### textbook_units / textbook_lessons / textbook_chars / textbook_words
+
+**⚠️ 关键陷阱：`textbook_chars` 和 `textbook_words` 使用 `lesson_id`（外键 → `textbook_lessons.id`），而非直接存储 `lesson_number`。**
+
+```sql
+-- ❌ 错误：直接查 lesson_number 会报 OperationalError: no such column
+SELECT * FROM textbook_chars WHERE lesson_number = 18;
+
+-- ✅ 正确：需 JOIN textbook_lessons 才能获取 lesson_number
+SELECT tc.char, tc.pinyin, tl.lesson_number
+FROM textbook_chars tc
+JOIN textbook_lessons tl ON tc.lesson_id = tl.id
+WHERE tl.lesson_number = 18 AND tc.char_type = 'write';
+```
+
+这是该项目的**最高频 SQL 陷阱**——设计文档中和实际数据库中的列名可能存在差异。任何查询 `textbook_chars` 或 `textbook_words` 的 SQL 都应先 `PRAGMA table_info` 验证。
+
+#### textbook_chars 表结构（实际）
+
+| 字段 | 类型 | 说明 |
+|:-----|:-----|:------|
+| id | INTEGER PK | |
+| student_id | INTEGER FK | 学生ID |
+| lesson_id | INTEGER FK | → textbook_lessons.id（不是 lesson_number！） |
+| semester | TEXT | 如 '3下' |
+| char | TEXT | 汉字本身 |
+| pinyin | TEXT | 拼音 |
+| char_type | TEXT | 'recog' 会认 / 'write' 会写 |
+| strokes | INTEGER | 笔画数 |
+| radical | TEXT | 部首 |
+| structure | TEXT | 结构 |
+
+#### textbook_words 表结构（实际）
+
+| 字段 | 类型 | 说明 |
+|:-----|:-----|:------|
+| id | INTEGER PK | |
+| student_id | INTEGER FK | |
+| lesson_id | INTEGER FK | → textbook_lessons.id |
+| semester | TEXT | |
+| word | TEXT | 词语 |
+| pinyin | TEXT | 拼音（⚠️ 可能被截断为最后一个字拼音，见下方陷阱） |
+
+⚠️ **textbook_words pinyin 质量陷阱**：第18课（童年的水墨画）的 pinyin 字段被截断为最后一个字拼音（如"墨水"→"mò"而非"mò shuǐ"），共10词受影响。**缓解**：使用 `pypinyin` 从 word 字段重建全拼音。
+
 结构同 v4.1 旧设计，见 `references/data-structure-design-v5.html` 完整定义。
 
 ### L3 题库层（核心新表）
@@ -531,7 +575,103 @@ v4.1 的7模块上下文包设计保持不变。主要变化：
 - **防重范围**：用 practice_library 中最近N天的题去重
 - **单元测试覆盖规则**：单元测试 type=unit_test 必须覆盖该单元全部生词
 
-## 八、standalone SQLite 脚本注意事项
+## 八、试卷闭环系统（exam closed-loop）
+
+### 核心目的（4条用途，用户确认）
+
+| 用途 | 数据路径 | 说明 |
+|:-----|:---------|:------|
+| **① 题库补充** | exam_questions → question_bank (source='exam') | 试卷中的看拼音写词语/选择题直接转为题库题，加 source 标签区分 |  
+| **② 出题依据** | exam_analysis → LLM 上下文包 → 新题生成 | AI 分析试卷的题型分布/难度/知识点覆盖 → 作为 Agent 出题的上下文源 |
+| **③ 专项练习** | parent 选择题型 → question_bank 筛同型题 → practice_library | 家长从试卷中选择特定题型 → 从 question_bank 筛选同类题目打包成专项练习 |
+| **④ 错题同步** | exam_questions(is_correct=0) → wrong_questions | 试卷中的错题自动进入错题本，与日常练习错题合并展示 |
+
+### 数据流图
+
+```
+试卷拍照 → exam_papers（卷头）
+    │
+    │ OCR+人工校正
+    ▼
+exam_questions（原始题目）
+    │
+    ├─①→ question_bank（source='exam'）→ 题库可检索
+    ├─④→ wrong_questions（is_correct=0）→ 错题本
+    │
+    │ LLM 分析
+    ▼
+exam_analysis（题型分布/难度/薄弱分析）
+    │
+    ├─②→ Agent 出题上下文包 → 更精准的新题
+    └─③→ 家长选题型/知识点 → question_bank 筛选 → practice_library（专项练习）
+```
+
+### 三层留存策略
+
+| 层 | 存储位置 | 用途 | 谁用 |
+|:---|:---------|:-----|:-----|
+| L0 原始 OCR | exam_papers.raw_ocr_text | 人工校对回退 | 家长 |
+| L1 结构化题目 | exam_questions | 逐题展示、错题提取 | App 展示 + Agent 分析 |
+| L2 分析产出 | exam_analysis | AI 建议 | Agent 出题引擎 |
+
+### 映射到 question_bank 的规则
+
+**选择题（choice 型）：**
+- question_type = 'choice' 
+- question_text = 题干完整文字
+- choices = JSON 数组 [A项, B项, C项, D项]
+- answer = 正确选项字母（如 'C'）
+- source = 'exam'
+
+**看拼音写词语（pinyin_to_word 型）：**
+- question_type = 'pinyin_to_word'
+- question_text = '看拼音写词语：拼音'
+- answer = 词语
+- source = 'exam'
+
+**课文填空（fill_blank 型）：**
+- question_type = 'fill_blank'
+- question_text = 含空格的题干
+- answer = 答案
+- source = 'exam'
+
+**阅读理解（reading_comp 型）：**
+- 不直接入 question_bank（涉及短文正文+多子题）
+- 存储方式：sub_question 设计或将整个阅读题存入 practice_library 作为专项包
+
+**修改病句/改句子（综合主观题）：**
+- question_type = 'sentence_form'
+- answer = 标准答案
+- source = 'exam'
+
+### 错题同步策略
+
+```sql
+-- exam_questions → wrong_questions 同步规则
+-- 条件：is_correct = 0（答错）且 question_type ≠ 'reading_comp'
+INSERT INTO wrong_questions (student_id, question_type, question_text, correct_answer, wrong_answer, source, exam_paper_id, created_at)
+SELECT student_id, question_type, question_text, correct_answer, student_answer, 'exam', paper_id, datetime('now')
+FROM exam_questions
+WHERE paper_id = ? AND is_correct = 0;
+```
+
+### 家长端专项练习生成模式
+
+1. 家长在试卷详情页看到题型分布（饼图/统计图）
+2. 点击某个题型（如「看拼音写词语·错4题」）
+3. 系统从 question_bank 筛选同题型题目（不限试卷来源）
+4. 筛选规则：student_id=? AND question_type=? AND status='active'
+5. 打包为 practice_library（practice_type='challenge', title='专项练习：看拼音写词语'）
+6. 创建 practice_schedule 排入计划
+7. 家长可设置难度过滤（difficulty_assigned ≤ ?）
+
+### 参考架构
+
+exam 相关表的数据流向已在 `references/data-structure-design-v5.html` 完整设计文档中定义。当前（2026-05-18）三表已建但无数据，需 OCR 导入管线就绪后填充。
+
+---
+
+## 九、standalone SQLite 脚本注意事项
 
 ### 陷阱：get_db() 需要 Flask 应用上下文
 
@@ -640,7 +780,7 @@ hermes cron create \
 
 ⚠️ **page_lesson_map UNIQUE 约束陷阱**：该表 UNIQUE(student_id, semester, lesson_number) 阻止同一 lesson_number 的多条记录。非课文页面（习作/语文园地/口语交际）需用**唯一负数 lesson_number**（如 -1, -2, -3...）作为替代键。详见 `references/textbook-import-workflow.md`。
 
-## 九、测试验证模式
+## 十、测试验证模式
 
 ### 端到端测试
 
@@ -664,7 +804,7 @@ r = s.get(BASE + '/student/practice/schedule/1/result')
 assert '正确率' in r.text
 ```
 
-## 十、出题策略（运营模式）
+## 十一、出题策略（运营模式）
 
 ### 内容来源三源配比
 
@@ -696,7 +836,7 @@ assert '正确率' in r.text
 
 详见 `references/question-generation-strategy.md`（完整设计文档v2，含难度自适应+考点避重+7模块上下文包+UI/UE影响评估）。
 
-## 十一、单元测试生成方案
+## 十二、单元测试生成方案
 
 ### 10.1 两条路径
 
@@ -851,6 +991,124 @@ lessons_data = {
 3. fill_blank 答案应在 textbook_lesson_texts 中存在原文匹配
 4. 每课 schedule 日期不同（连续逐天）
 5. **去重检查**：⚠️ `SELECT id FROM question_bank WHERE lesson_number=?`**会返回同一个词语的多个 qid**（多轮生成脚本对同一词语插入了多条记录）。必须用 `SELECT MIN(id) ... GROUP BY answer` 确保 uniqueness。
+6. **新题型去重**：write_char 用 `GROUP BY answer`（同一字不同ID），sentence_form 用 `GROUP BY answer`（同一词不同ID）
+
+### 6.5 新题型：写汉字 (write_char) 与 组词造句 (sentence_form)（2026-05-18 新增）
+
+#### write_char — 写汉字
+
+**数据来源：** `textbook_chars` WHERE `char_type='write'`（103个会写字，已映射 lesson_number）
+
+**题型设计：**
+- `question_text` 格式：`写汉字：pinyin`
+- `question_type`：`write_char`
+- `answer`：单字（如"秘"）
+- `answer_char_count`：1（单格子）
+- `pinyin_syllables`：由 `library_service.py` 从 `:` 后解析为单元素数组 `[pinyin]`
+
+**模板渲染：**
+```
+写汉字 ← q-badge
+zhēn     ← hw-pinyin-label（拼音标签居中）
+┌─────────────┐
+│   田字格     │  ← 单格手写 Canvas（260×260）
+│   手写区     │
+└─────────────┘
+    1         ← hw-cell-label（序号）
+```
+
+**答案检查策略：** 精确匹配（`user_answer == correct_answer`）
+
+**数据生成脚本：**
+```python
+chars = db.execute("""
+    SELECT tc.char, tc.pinyin, tl.lesson_number
+    FROM textbook_chars tc
+    JOIN textbook_lessons tl ON tc.lesson_id = tl.id
+    WHERE tc.char_type = 'write'
+""").fetchall()
+for c in chars:
+    db.execute(
+        "INSERT INTO question_bank (student_id, subject, question_type, question_text, answer, "
+        "lesson_number, difficulty_assigned, status, knowledge_point) "
+        "VALUES (1, 'chinese', 'write_char', ?, ?, ?, 2, 'active', '会写字·第X课')",
+        (f"写汉字：{c['pinyin']}", c['char'], c['lesson_number'])
+    )
+```
+
+#### sentence_form — 组词造句
+
+**数据来源：** `chinese_words` WHERE `word` IS NOT NULL（119个词语，已映射 lesson）
+
+**题型设计：**
+- `question_text` 格式：`用「word」造句`
+- `question_type`：`sentence_form`
+- `answer`：词语本身（用于关键词包含检查）
+- 无手写格子，使用 `<textarea>` 输入
+
+**模板渲染：**
+```
+组词造句           ← q-badge
+第X课·课文名       ← q-source
+用「凉爽」写一个句子 ← 题干（keyword 从 question_text 正则提取）
+┌─────────────────────────────────────┐
+│  ［textarea 输入框］                   │
+│  min-height:100px                     │
+│  placeholder: "在这里写句子……"        │
+│  oninput: updateSentenceSubmit()      │
+└─────────────────────────────────────┘
+至少写2个字      ← sentenceHint（字数提示）
+[🤷 跳过]  [提交答案]
+```
+
+**答案检查策略：** 宽松包含匹配（`keyword in user_answer`），即学生答案中必须包含目标词语。
+
+**JavaScript 提交：** `sentence_form` 在表单提交时走独立分支，不经过 `hwCells` 逻辑：
+```javascript
+// 在 form submit handler 中
+} else if (document.getElementById('sentenceInput')) {
+    answer = document.getElementById('answerInput').value;
+    if (!answer || answer === '_unknown_') return;
+}
+```
+
+**后端路由处理：**
+```python
+if q['question_type'] == 'sentence_form':
+    keyword = correct_answer
+    is_correct = keyword in user_answer
+else:
+    is_correct = user_answer == correct_answer
+```
+
+#### Template 题型扩展模式（四步法）
+
+每次新增题型到 `schedule_practice.html` 时，必须按以下 4 步操作：
+
+| 步骤 | 位置 | 修改内容 | 示例（write_char） |
+|:----:|:-----|:---------|:------------------|
+| 1️⃣ 添加 Badge 标签 | 模板 q-badge 区 | 增加 `elif question.question_type == 'xxx'` | `写汉字` |
+| 2️⃣ 添加渲染分支 | 模板 if/elif 区 | 增加新的 HTML 渲染块 | 使用 hw-cells（与 pinyin_to_word 共用） |
+| 3️⃣ 添加提交分支 | JS 表单 submit handler | 增加新类型的 answer 提取逻辑 | 共用 hwCells 提取（已存在，不新增） |
+| 4️⃣ 添加答案检查 | 后端 route | 如需要特殊匹配逻辑 | 精确匹配（与默认相同，不新增） |
+
+**常见陷阱：**
+- **漏掉 `{% endif %}`**：添加 elif 分支后必须确保有一个闭合的 `{% endif %}` 在 `</form>` 之前
+- **JavaScript 提交没有保护**：新题型必须有对应的 answer 提取逻辑，否则会误进入默认的 `hwCells` 路径（hwCells 不存在时抛异常）
+- **`library_service.py` 的 pinyin_syllables 解析**：非 pinyin_to_word 题型如果 question_text 也含冒号，会误触发拼音解析。必须为每个新题型显式定义解析逻辑
+- **answer_char_count 缺失**：write_char 需要 `answer_char_count=1`，否则默认值可能导致格子数错误
+
+#### 完整题型清单（截至 2026-05-18）
+
+| 题型 | question_type | 来源表 | 题量 | 答案检查 | 输入方式 |
+|:-----|:--------------|:-------|:----:|:---------|:---------|
+| 看拼音写词语 | `pinyin_to_word` | chinese_words + textbook_words | 170 | 精确匹配 | 多格手写 |
+| 会认字选读音 | `choose_pinyin` | textbook_chars (char_type=recog) | 71 | 选项选择 | 点击选项 |
+| 课文填空 | `fill_blank` | textbook_lesson_texts | 22 | 精确匹配 | 多格手写 |
+| 写汉字 | `write_char` | textbook_chars (char_type=write) | 103 | 精确匹配 | 单格手写 |
+| 组词造句 | `sentence_form` | chinese_words | 119 | 关键字包含 | textarea |
+
+**lesson_test 库题型覆盖率：** 截至 2026-05-18，9个 lesson_test 库全部覆盖以上5种题型（第21课仅有 write_char + sentence_form，需补充 pinyin_to_word + choose_pinyin + fill_blank）。
 
 **触发场景：** 用户说"根据词语表生成练习"、"检查是否有词语表记录，生成没课的练习题"时，必须先审计覆盖缺口，再汇报，获确认后执行。
 
@@ -1007,7 +1265,7 @@ Step 7: 创建 practice_schedule 或更新现有 schedule
 
 详见 `references/unit-test-generation.md`（本会话的完整操作实录与代码模板）。
 
-## 十二、家长中心管理层（UI 架构）
+## 十三、家长中心管理层（UI 架构）
 
 ### 整体结构
 
@@ -1087,7 +1345,7 @@ Step 7: 创建 practice_schedule 或更新现有 schedule
 
 详见 `references/parent-center-optimization-v1.html`（本会话产出的完整优化方案文档）。
 
-## 十三、参考文件
+## 十四、参考文件
 
 | 文件 | 说明 |
 |:-----|:------|
@@ -1102,5 +1360,7 @@ Step 7: 创建 practice_schedule 或更新现有 schedule
 | 项目内: `~/edu-hub/ai-family-tutor/services/library_service.py` | 核心只读库服务 |
 | 项目内: `~/edu-hub/ai-family-tutor/scripts/001_add_v5_tables.py` | 新增13张表迁移脚本 |
 | 项目内: `~/edu-hub/ai-family-tutor/scripts/seed_test_data.py` | 测试数据种子脚本 |
+| `references/old-system-residual-references.md` | **旧系统残留引用追踪（2026-05-18 新增）：50+处仍在查询 `practice_sessions`/`practice_answers` 的代码位置清单** |
 | `references/per-lesson-generation-logs-20260517.md` | **每课一练生成操作日志：覆盖审计SQL + 已知陷阱（textbook_words拼音截断、duplicate去重、chinese_words重复记录）** |
-| `references/learning-report-sql-pattern.md` | **学习报告SQL查询模式：每课掌握情况 + 高频错误字词统计（2026-05-17新增）** |
+| `references/learning-report-kg-sql-20260518.md` | **知识图谱+题型分布SQL模式（2026-05-18新增）—— textbook_chars JOIN textbook_lessons 陷阱 + 三态判定** |
+| `references/learning-report-sql-pattern.md` | **学习报告SQL查询模式：每课掌握情况 + 高频错误字词统计（2026-05-17新增）** |**

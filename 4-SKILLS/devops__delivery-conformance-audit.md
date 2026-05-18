@@ -315,7 +315,36 @@ LLM/推理               🧠 极高     Backend
 3. **架构级缺口不可通过增量修复解决** — 如果发现「数据源不统一」「前后端职责错位」等架构问题，不要试图在现有架构上打补丁，应该先做架构方案再做实施
 4. **领域评估后可能推翻原设计** — 这是正常的。如果原设计本身在领域层面就有缺陷，重构原设计比在原设计上叠加修改更可持续
 
-## 实战陷阱（从 C003 Web v1.0 审定总结）
+### 模板-上下文变量验证（提交前必做）
+
+**问题**：重新撰写路由（迁移 DB 查询）后，`render_template()` 可能传入正确的数据但使用了错误的变量名，模板不报错但无内容显示。
+
+**信号**：模板中 `{% if selected_student and report %}` 没有匹配的分支，或内容区域为空。
+
+**检查方法**：
+1. 读取模板，提取所有模板变量引用（`{{ var }}`、`{% if var %}`、`{% for x in var %}`）
+2. 读取路由的 `render_template()` 调用，逐项比对
+3. 注意：模板变量可能来自父模板（`extends`）、继承块（`block`）、或模板中的 `set` 语句——不要只查当前路由，还要查 `{% extends %}` 中的父模板
+4. 验证每个分支条件都有对应的双侧渲染可能性检查
+
+**实战案例**（AI家庭教师 `reports_detail` 路由）：
+```python
+# ❌ 错误：传递了 student, schedules, subject_stats
+return render_template('parent/reports.html', student=student, schedules=schedules, subject_stats=subject_stats)
+
+# ✅ 正确：模板期望 selected_student 和 report（含各科统计+错题+建议）
+return render_template('parent/reports.html', selected_student=student, students=all_students, report=report)
+```
+
+### SubAgent 可发现跨层不一致
+
+当使用 SubAgent（`delegate_task`）执行数据迁移时，SubAgent 在处理迁移过程中可能发现调用链上下游的参数不一致（如路由与模板的变量名不匹配），这是 SubAgent 作为「不知情的局外人」天然具有的审查优势。
+
+处理方法：
+- SubAgent 发现的模板/路由不匹配 → 记录为**跨层不一致 Bug**，由主 Agent 决策修正
+- SubAgent 完成迁移后，应向报告中明确指出此类问题（例如 SubAgent 发现 `reports_detail` 传 `student` 但模板用 `selected_student`）
+
+实战陷阱（从 C003 Web v1.0 审定总结）
 
 1. **设计文档可能不存在于文件系统中** — 设计可能在会话历史中而非文件中。要先 `session_search` 再 `search_files`
 2. **不要猜测 API 端点路径** — 先检查实际路由注册（`grep -rn 'route\|blueprint'`），再逐一测试。猜测会导致误报"端点缺失"

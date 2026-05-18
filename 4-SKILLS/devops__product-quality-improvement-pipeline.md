@@ -402,11 +402,12 @@ python3 ~/.hermes/scripts/quality_gate.py --target ~/edu-hub/ai-family-tutor
 | `references/navigation-path-cross-ref.md` | 导航路径交叉引用审计 |
 | `references/llm-exam-analysis-image-blindness.md` | LLM 试卷分析图片盲区陷阱 |
 | `references/quality-gate-baseline-triage.md` | 质量门禁基线分类策略 |
-| `references/data-source-migration-audit.md` | 数据源迁移审计 — 写入新文件但读取旧文件的检测与修复 |
-| `references/grading-field-mapping.md` | 判题函数字段映射不一致 — 多题型系统中答案字段与判题字段不匹配的检测与修复 |
-| `references/bilingual-content-quality-audit.md` | 双语内容数据质量审计 — cn==en 导致 en2cn 题型无声失效的检测与修复 |
-| `references/question-type-removal-pattern.md` | 从教育系统移除题型 — 六层重构检查清单（生成→判题→重练→模板→数据→死代码） |
-| `references/defect-pattern-registry.md` | 缺陷模式注册表 — 自进化门禁系统，包含 D001-D004 初始模式定义 |
+| `references/data-source-migration-audit.md` | 数据源迁移审计 |
+| `references/grading-field-mapping.md` | 判题函数字段映射不一致 |
+| `references/bilingual-content-quality-audit.md` | 双语内容数据质量审计 |
+| `references/question-type-removal-pattern.md` | 从教育系统移除题型 — 六层重构清单 |
+| `references/defect-pattern-registry.md` | 缺陷模式注册表 |
+| `references/flask-full-audit-methodology.md` | Flask Web应用全量审计方法论 — 6步递进审计流程：项目扫描→DB Schema→路由清单→模板分析→空表检测→数据质量 |
 | `templates/quality_gate_template.py` | 6维质量门禁扫描脚本模板 — 可复制并扩展。生产级实现在 `~/.hermes/scripts/quality_gate.py`，已在 AI家庭教师项目验证（首扫描426项发现） |
 | `~/wiki/guides/development-testing-key-points.md` | 6 类开发/测试检查点 — 模板变量传递、标志消费链、五层数据流验证、题型分支测试等 |
 | `references/api-level-batch-scanner-pattern.md` | API层批量扫查模式 — 直接调后端引擎生成所有输出，程序化验证数据完整性 |

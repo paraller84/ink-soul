@@ -238,12 +238,56 @@ git add -A && git commit -m "feat: complete [feature name] implementation"
 - "Add JWT token generation"
 - "Create registration endpoint"
 
+## Parallel Delegation (Multi-Task Batching)
+
+### When parallel is safe
+
+Tasks that modify **different files entirely** can always run in parallel. Tasks that modify **different functions/modules within the same file** are also safe, provided the changes don't overlap on the same lines.
+
+```python
+# ✅ SAFE: different files
+delegate_task(task_1, context="Modify templates/a.html ONLY")
+delegate_task(task_2, context="Modify routes/x.py function X ONLY")
+
+# ✅ SAFE: same file, different functions
+delegate_task(task_1, context="Modify routes/parent.py: dashboard() function ONLY")
+delegate_task(task_2, context="Modify routes/parent.py: coin_overview() function ONLY")
+
+# ❌ RISKY: same function, same file — will cause merge conflict
+delegate_task(task_1, context="Modify routes/parent.py: coin_overview()")
+delegate_task(task_2, context="Modify routes/parent.py: coin_overview()")  # MERGE CONFLICT
+```
+
+### Benefits
+
+- **3-4x throughput** — 3 tasks completed in 185s vs ~550s serial
+- **No context pollution** — each subagent only sees its own files
+- **Confidence from file isolation** — if tasks only touch `a.html`, `b.py`, `c.html` respectively, there is zero merge risk
+
+### Verification after parallel delegation
+
+Always verify the combined output after all tasks complete:
+
+```python
+# Run full test suite
+pytest tests/ -q
+
+# Hit all modified routes with test_client
+app.test_client().get(route_a)
+app.test_client().get(route_b)
+app.test_client().get(route_c)
+```
+
+### Jinja2 post-Aider verification
+
+Aider 生成的 Jinja2 模板可能混入 Python 原生函数（如 `{{ abs(x) }}` 而非 `{{ x|abs }}`），这种错误只在模板渲染时才暴露。并行多任务下尤其容易遗漏。详见 `aider-coding` skill 的 Jinja2 Template Pitfalls 节。
+
 ## Red Flags — Never Do These
 
 - Start implementation without a plan
 - Skip reviews (spec compliance OR code quality)
 - Proceed with unfixed critical/important issues
-- Dispatch multiple implementation subagents for tasks that touch the same files
+- Dispatch multiple implementation subagents for tasks that modify the same functions/lines within the same file (parallel is safe when tasks affect different functions/modules)
 - Make subagent read the plan file (provide full text in context instead)
 - Skip scene-setting context (subagent needs to understand where the task fits)
 - Ignore subagent questions (answer before letting them proceed)

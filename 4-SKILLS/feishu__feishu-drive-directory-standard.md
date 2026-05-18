@@ -66,7 +66,7 @@ Hermes生成文件/
 
 ### 各目录Token速查表
 
-> **⚠️ Token会漂移**，每次使用前先通过 `list_folder(HERMES_TOKEN)` 获取最新Token，不可硬编码。但顶层文件夹Token相对稳定。
+> **⚠️ 2026-05-18 实测纠正**：此前记录的"Token漂移/404"是误报，实际原因是用了错误的API端点。Token本身稳定，请使用正确的端点（见附录B）。
 
 | 路径 | 当前Token（仅供快速定位，使用前验证） |
 |------|------|
@@ -144,8 +144,8 @@ Hermes生成文件/
 
 ## 六、最佳实践
 
-1. **先查Token再上传**：每次执行前调用 `list_folder(HERMES_ROOT)` 获取最新Token
-2. **Token漂移处理**：飞书Token会漂移，缓存Token仅作参考，使用前必须验证
+1. **先查Token再上传**：每次上传前用正确端点验证目标目录Token（见附录B）
+2. **Token稳定不漂移**：2026-05-18实测，Token本身稳定（Hermes生成文件Otppfr9EelPIawdezL2csUXCnoh及其子目录均有效）。若遇404，先检查API端点是否正确，而非假定Token漂移
 3. **文件夹不存在则创建**：按需创建子目录，遵循6大板块结构
 4. **不直接放根目录**：所有文件必须有明确的归类目录
 5. **部门群产出自动归档**：各部门群生成的内容直接放入对应的部门产出目录
@@ -183,8 +183,12 @@ Hermes生成文件(飞书云盘)
 
 ```python
 # Step 1: 上传到飞书对应目录
-# (见路由规则表)
+# (见路由规则表，API端点见 references/feishu-api-endpoint-guide.md)
+```
 
+## 附录B: API 端点速查
+
+> 见 `references/feishu-api-endpoint-guide.md` — 已验证有效的Tokens、正确/错误端点对照、upload_all 5字段细节。
 # Step 2: 同时保存本地副本
 output_path = os.path.expanduser("~/.hermes/output/filename.html")
 with open(output_path, "w") as f:

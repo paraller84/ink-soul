@@ -255,6 +255,19 @@ Key differences from general reports:
 
 **页面设计参考资料**：本skill的references/目录下有完整的14页pptxgenjs生成脚本示例
 
+## 场景扩展：跨多场专题会阶段性情况汇报
+
+For a progress report that synthesizes items from multiple recent meetings led by the same leader — see the specialized reference:
+
+[references/cross-meeting-progress-report.md](references/cross-meeting-progress-report.md) (new 2026-05-18)
+
+Key differences from single-report workflow:
+- **Multiple source meetings**: 2-4 meetings, each with multiple action items
+- **Structure**: overview stats → per-meeting tables → deep-dive cards → timeline → items needing leader coordination → next steps
+- **Leader profile pre-read required**: must align with the leader's management style (老苏: data-driven, conclusion-first, hates surprises)
+- **State coloring**: ✅ completed / 🔄 in-progress / ⏳ needs coordination
+- **Must not omit meetings**: users track completeness — cross-check with C013 Get notes + Feishu tasks + memory
+
 ## 场景扩展：向一把手汇报监管/事项类材料
 
 For executive status reports to a top leader (党委书记/总经理级别) — such as regulatory inquiries, risk events, or special investigations — see the specialized reference:
