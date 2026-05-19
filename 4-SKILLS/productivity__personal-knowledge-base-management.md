@@ -1,7 +1,7 @@
 ---
 name: personal-knowledge-base-management
 description: 个人知识库 RAG 系统 — WPSDocument（递归子目录）→ 整理 → 知识库文档 → 增量向量化 → ChromaDB 检索
-version: 2.0.0
+version: 2.4.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -70,7 +70,9 @@ G盘文件系统/
 │   ├── kb_vectorize.py      # ② 增量向量化引擎 知识库文档 → ChromaDB [已就绪]
 │   ├── kb_retrieve.py       # ③ 语义检索模块 ChromaDB → 回答 [已就绪]
 │   ├── kb_cron.py           # ④ Cron 任务管理 install/uninstall/status/run [已就绪]
-│   └── kb_pipeline.py       # ⑤ 主流水线入口 EnvCheck→扫描→整理→向量化→报告 [已就绪]
+│   ├── kb_pipeline.py       # ⑤ 主流水线入口 EnvCheck→扫描→整理→向量化→报告 [已就绪]
+│   ├── trust_labeler.py     # ⑥ 信任层级判定模块（L1/L2/L3规则引擎） [v1.0.0 / 2026-05-19]
+│   └── batch_label_existing.py # ⑦ 存量文件批量标注信任层级 [v1.0.0 / 2026-05-19]
 ├── vector_store/            # ChromaDB 数据（chroma.sqlite3 + 索引文件）
 ├── cache/                   # 增量扫描缓存（wpsdoc_cache.json / file_cache.json）
 ├── reports/                 # 每日执行报告
@@ -670,8 +672,76 @@ read_file ~/wiki/raw/systems/life-compass/portraits/workplace/老苏-v1.md
 | 查询嵌入失败 | Ollama 未运行 | `ollama serve` 启动 |
 | 搜索结果为空 | 无匹配 | 换同义词或用 `--file-search` |
 
+## 知识入库策略 v1.0（2026-05-19 新增）
+
+知识管线的上游质量由「知识入库策略」文档定义。该文档位于飞书云盘能力体系文件夹，定义了：
+
+### 准入控制
+
+| 门禁 | 规则 | 信任层级 |
+|:----|:-----|:---------|
+| ✅ **白名单** | 正式工作文档／纪要／你修正的稿／历史回复／系统设计文档 | L1 |
+| ⚠️ **观察** | C013 会议原始待办／阅读笔记 | L2 |
+| ❌ **禁入** | 原始转录（未处理）／临时草稿／外部第三方未验证文件／纯技术输出 | 不入库 |
+| 🔒 **L3 暂存** | 网络爬取／未分类邮件／AI未审阅输出（超过30天无人审阅→自动移除） | L3 |
+
+### 三层信任体系
+
+- **L1·已验证区**（可信度 0.8-1.0）：你确认/实践验证的内容 → Agent 可直接引用
+- **L2·待验证区**（可信度 0.4-0.7）：文档/被动接收/AI分析 → Agent 引用时标注"待你确认"
+- **L3·暂存区**（可信度 <0.4）：外部未验证输入 → Agent 不主动引用
+
+### 生命周期
+
+活跃（60天内被引用≥1次）→ 观察（60天未引用，降权但可检索）→ 归档（180天未引用，移出ChromaDB）
+
+### 与 kb_pipeline 的集成关系
+
+**Phase 1+2 已全部完成（2026-05-19）：**
+
+| 阶段 | 内容 | 状态 |
+|:----|:-----|:----:|
+| Phase 1 | 策略定义（本文档上方的准入/L1-L3/生命周期） | ✅ 已完成 |
+| Phase 2 | 代码实现 | ✅ 已完成 |
+
+**Phase 2 实现详情：**
+
+在 `kb_organize.py` 中新增 `_write_metadata()` 方法，整理文件时同步将信任层级写入 `/知识库文档/metadata.json`；在 `kb_vectorize.py` 中读取 metadata.json，L3 文件自动跳过向量化，所有入库文件在 ChromaDB metadata 中携带 `trust_level` 字段。
+
+**管线新增数据流：**
+
+```
+kb_organize (整理) → _execute_copy() → _write_metadata()
+                                              ↓
+                                       metadata.json ← batch_label_existing.py (存量标注)
+                                              ↓
+kb_vectorize (向量化) → 扫描文件 → 查 trust_level
+                                   L3 → 跳过（不入 ChromaDB）
+                                   L1/L2 → 向量化 + trust_level 写入 metadata
+```
+
+**Agent 使用 ChromaDB 检索时**，`source_filename` 和 `trust_level` 均在 metadata 中，Agent 可按以下规则引用：
+
+| trust_level | 引用方式 |
+|:-----------|:---------|
+| L1 | 直接引用，无需标注置信度 |
+| L2 | 引用时标注"待你确认" |
+| L3 | 不主动引用（已在向量化阶段跳过，ChromaDB 中不存在 L3 数据） |
+
+📎 **策略文档**：[知识入库策略_v1.html](https://nofile.feishu.cn/file/HbXNbCfAloZ9E0xDm6ScBoqKndB)（飞书云盘·能力体系文件夹）
+
+---
+
 ## 更新日志
 
+- v2.4.0 (2026-05-19): Phase 2 信任标注+禁入检查代码实现已完成
+  - 新增 trust_labeler.py（L1/L2/L3 规则引擎，路径+文件名模式匹配）
+  - 新增 batch_label_existing.py（存量 2,541 文件批量标注脚本）
+  - kb_organize.py 新增 _write_metadata()，整理时输出信任层级到 metadata.json
+  - kb_vectorize.py 加载 metadata.json，L3 文件跳过向量化，ChromaDB metadata 含 trust_level
+  - kb_pipeline.py 报告新增信任层级统计行
+  - 存量 2,541 文件已标注：L1=53 / L2=2481 / L3=7
+- v2.3.1 (2026-05-19): 新增知识入库策略章节（准入/L1-L3/生命周期），关联飞书文档
 - v2.3.0 (2026-05-12): 新增 OLLAMA_HOST / Cron / --full 陷阱 + .eml 分类缺口
   - 🚨 新增陷阱 13: OLLAMA_HOST 硬编码 Docker IP（4 脚本痛点）
   - 🚨 新增陷阱 14: `--full`/`--organize-only`/`--vectorize-only` 跳过增量扫描

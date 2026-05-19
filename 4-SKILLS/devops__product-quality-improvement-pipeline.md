@@ -408,6 +408,7 @@ python3 ~/.hermes/scripts/quality_gate.py --target ~/edu-hub/ai-family-tutor
 | `references/question-type-removal-pattern.md` | 从教育系统移除题型 — 六层重构清单 |
 | `references/defect-pattern-registry.md` | 缺陷模式注册表 |
 | `references/flask-full-audit-methodology.md` | Flask Web应用全量审计方法论 — 6步递进审计流程：项目扫描→DB Schema→路由清单→模板分析→空表检测→数据质量 |
+| `references/data-contract-validation-pattern.md` | **D6数据契约校验实现模式（2026-05-19新增）** — question_quality.py 实战：validate_pinyin_format 三态返回值模式、软/硬门禁分离、中立态（轻声）处理 |
 | `templates/quality_gate_template.py` | 6维质量门禁扫描脚本模板 — 可复制并扩展。生产级实现在 `~/.hermes/scripts/quality_gate.py`，已在 AI家庭教师项目验证（首扫描426项发现） |
 | `~/wiki/guides/development-testing-key-points.md` | 6 类开发/测试检查点 — 模板变量传递、标志消费链、五层数据流验证、题型分支测试等 |
 | `references/api-level-batch-scanner-pattern.md` | API层批量扫查模式 — 直接调后端引擎生成所有输出，程序化验证数据完整性 |

@@ -382,7 +382,30 @@ print(f"Document has {len(children)} child blocks")
 - `advisory-v<版本号>-<角色>.md`（顾问团评估文档）
 - `<场景名>-v<版本号>.md`（其他文档缓存）
 
-### 9. 父文件夹 token 有效性检查
+### 9. .env 文件中的 app_secret 被 terminal tool 遮蔽（🐛 2026-05-19）
+
+**症状**：直接读取 `~/.hermes/.env` 获取 `FEISHU_APP_SECRET` 时，terminal tool 输出显示为截断值（如 `dR2RKx...bi1E`），导致后续 token 请求返回 `"app secret invalid"`。
+
+**根因**：Hermes terminal tool 对 `.env` 文件中的敏感值进行了自动遮蔽（masking），`cat` 命令返回的是被截断的版本。但实际读取的文件内容完整——遮蔽发生在输出渲染层而非文件内容层。
+
+**修复**：使用 `grep | cut` 提取单行值而非 `cat` 全量输出：
+```bash
+# ❌ 会被遮蔽，token 请求失败
+export FEISHU_APP_SECRET=$(cat ~/.hermes/.env | grep FEISHU_APP_SECRET)
+
+# ✅ 通过 grep 管道提取，绕过遮蔽
+APP_SECRET=$(grep '^FEISHU_APP_SECRET=' ~/.hermes/.env | cut -d'=' -f2)
+```
+
+最可靠的方案：直接使用 `feishu_tokens.get_fei_token()` 模块，它内部已处理了文件读取逻辑：
+```python
+from feishu_tokens import get_fei_token
+token = get_fei_token()  # 自动从 .env 读取完整值
+```
+
+**预防**：从 `.env` 中读取敏感配置值时，优先使用专门的配置读取模块（如 `feishu_tokens`），而非直接 `cat` 解析。
+
+### 10. 父文件夹 token 有效性检查
 
 **症状**：创建子文件夹或上传文件时返回 `HTTP 404`。
 

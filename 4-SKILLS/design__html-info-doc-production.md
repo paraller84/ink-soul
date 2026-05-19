@@ -170,6 +170,7 @@ tags: [html, design, info-graphic, document, report, template]
 ### Step 1: 收集信息
 - 确认文档主题、目标读者、核心信息点
 - 收集所有需要呈现的结构化数据
+- **可选**：如有PPTX源文件需要分析配色/风格，参见 `references/pptx-style-analysis.md`
 
 ### Step 2: 设计骨架
 - 确定章节结构（h2 级别）

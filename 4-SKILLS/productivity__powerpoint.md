@@ -44,11 +44,63 @@ python scripts/office/unpack.py presentation.pptx unpacked/
 
 ---
 
+## Prerequisite Check
+
+Before starting PPT generation, verify the toolchain:
+
+```bash
+# Option A: PptxGenJS (preferred — complex layouts)
+node -e "require('pptxgenjs')" 2>/dev/null && echo "✅ pptxgenjs ready" || echo "⚠️ install: npm install -g pptxgenjs"
+
+# Option B: python-pptx (fallback — simpler decks)
+python3 -c "import pptx; print('✅ python-pptx', pptx.__version__)" 2>/dev/null || echo "⚠️ missing: pip install python-pptx"
+
+# Verify installation path
+npm root -g  # ~/.hermes/node/lib/node_modules on this system
+```
+
+### ⚠️ Global NPM Path (WSL pitfall)
+
+When running a script from a subdirectory, `require('pptxgenjs')` may fail even after `npm install -g`:
+
+```
+Error: Cannot find module 'pptxgenjs'
+```
+
+**Fix**: Set `NODE_PATH` to the global npm root:
+
+```bash
+NODE_PATH=$(npm root -g) node gen_pptx.js
+```
+
+### Tool Selection
+
+| Condition | Tool | Reason |
+|-----------|------|--------|
+| Complex layouts (cards, grids, multi-column, custom positioning) | PptxGenJS | Full control over every element |
+| Simple title+bullets, template-based edits | python-pptx | Faster setup, less code |
+| Template reuse with tweaks | python-pptx + unpack script | Preserve existing design |
+
+---
+
 ## Creating from Scratch
 
 **Read [pptxgenjs.md](pptxgenjs.md) for full details.**
 
 Use when no template or reference presentation is available.
+
+**Quick script structure:**
+
+```javascript
+const pptxgen = require("pptxgenjs");
+const pres = new pptxgen();
+pres.layout = "LAYOUT_16x9";
+// ... build slides ...
+// Each slide: addShape for backgrounds/cards + addText for content + addTable for tables
+pres.writeFile({ fileName: "output.pptx" }).then(() => console.log("✅ Done"));
+```
+
+Run with: `NODE_PATH=$(npm root -g) node gen_pptx.js`
 
 ---
 

@@ -69,6 +69,22 @@ file /mnt/c/Users/yeyu_/Desktop/script.cmd
 
 **陷阱提示：** `write_file` 工具写入的文件默认 UTF-8 + LF。这对 Linux 环境友好，对 Windows 环境可能不兼容。创建跨平台文件前务必做编码预检。
 
+### ⚠️ 2026-05-19 真实踩坑：纯英文才是最稳的方案
+
+给用户生成 `c_drive_analyzer.bat` 时，第一版含中文 echo 和注释，UTF-8 编码。用户在中文 Windows CMD 中运行，出现典型症状：
+
+```
+'垚鏃堕棿锛?DATETIMEOUTPUT' 不是内部或外部命令
+'OTAL_BYTES' 不是内部或外部命令
+命令语法不正确。
+```
+
+中文字符被 GBK 错误解析为乱码后，CMD 把拼凑后的字符串当作命令尝试执行。**根因**：`write_file` 写入 UTF-8 文件，CMD 用 GBK 读取，中文文本被错误分割。
+
+**修复方案**（已沉淀为 `templates/c-drive-analyzer.bat`）：全量使用英文文本，0 中文。不需要 `chcp` 切换代码页，零坑。
+
+**教训**：对 CMD 目标，纯 ASCII/纯英文输出是最稳的方案。加 `chcp 65001` 虽然可切换 UTF-8，但需要等宽字体支持中文显示（CMD 默认点阵字体常缺），反而不如纯英文可靠。
+
 ### 1. 工具路径
 
 Windows 可执行文件位于 `/mnt/c/Windows/System32/`：
@@ -180,6 +196,17 @@ wevtutil.exe qe System "/q:*[System [(EventID=1074)]]" /c:5 /f:text /rd:true 2>&
 | **43** | WindowsUpdateClient | 更新已下载 |
 | **44** | WindowsUpdateClient | 更新正在安装 |
 | **24** | Kernel-General | 系统时间更新（有时关联更新后重启） |
+
+## 可复用模板
+
+该技能下提供以下可复用的 Windows 管理批处理模板（`templates/` 目录）：
+
+| 模板 | 用途 | 
+|------|------|
+| `c-drive-analyzer.bat` | C盘空间分析 — 6项检查（磁盘/Temp/下载/缓存/更新/Win.old），输出到桌面txt报告 |
+| `c-drive-cleanup.bat` | C盘安全清理 — 清Temp+浏览器缓存+回收站+桌面安装包 |
+
+使用方式：从模板目录复制内容后，通过 `write_file` 写入 `/mnt/c/Users/Public/` 或用户桌面等 Windows 可访问路径，然后告知用户在 CMD（管理员）中运行。
 
 ## 查询策略
 

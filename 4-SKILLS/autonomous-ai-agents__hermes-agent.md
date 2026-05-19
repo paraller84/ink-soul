@@ -30,9 +30,7 @@ People use Hermes for software development, research, system administration, dat
 
 **Docs:** https://hermes-agent.nousresearch.com/docs/
 
-**Reference files in this skill:**
-- `references/cloud-models-deepseek.md` — DeepSeek provider config, router tiers, multi-model strategy
-- `references/token-savior-integration.md` — Token Savior MCP server: install, register, 53 tools by category, C005 integration mapping
+**Reference files in this skill:**\n- `references/cloud-models-deepseek.md` — DeepSeek provider config, router tiers, multi-model strategy\n- `references/token-savior-integration.md` — Token Savior MCP server: install, register, 53 tools by category, C005 integration mapping\n- `references/upgrade-git-clone.md` — Upgrading Hermes from git clone (git pull → doctor --fix → verify plugins → enable new features)
 
 ## Quick Start
 
@@ -618,6 +616,29 @@ Note: YOLO / `approvals.mode: off` does NOT turn off secret redaction. They are 
 ### Shell hooks allowlist
 
 Some shell-hook integrations require explicit allowlisting before they fire. Managed via `~/.hermes/shell-hooks-allowlist.json` — prompted interactively the first time a hook wants to run.
+
+## Upgrading Hermes (Git Clone Installation)
+
+When installed via `git clone` (not pip), upgrading uses `git pull`. Full detail in `references/upgrade-git-clone.md`.
+
+```bash
+cd ~/.hermes/hermes-agent
+git pull origin main
+hermes doctor --fix           # auto-migrate config (e.g., v22→v23)
+hermes config set web_search.provider ddgs   # optional: enable free DDGS
+```
+
+**Verify after upgrade:** `hermes doctor` must show memory provider as "active", all core tools available, DeepSeek connectivity green. Start a fresh session for changes to take effect.
+
+### Web Search Provider: DDGS (Free, Zero-Config)
+
+DuckDuckGo search needs no API key — saves a paid subscription:
+
+```bash
+hermes config set web_search.provider ddgs
+```
+
+Tested working in v0.14.0. Switch back to an API-key provider if higher rate limits are needed.
 
 ### Disabling the web/browser/image-gen tools
 

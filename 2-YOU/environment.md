@@ -19,9 +19,7 @@ Hermes Gateway: systemd user service (hermes-gateway.service, Restart=always, 60
 WSL关键限制: systemctl --user services 不自动随WSL启动, 需Windows Scheduled Task强制启动.
 §
 === CORE SYSTEMS ===
-Edu-Hub: ~/edu-hub/app.py :5002 (统一Flask进程). 三大模块同属Edu-Hub工程: C003数学/cron驱动, C008英语/最成熟, C011语文/双分支. 术语: 称「模块」不称「系统」. 统一设计系统v1.1: 护眼配色, 共享CSS edu-design-system.css.
-AI家庭教师: ~/edu-hub/ai-family-tutor/ (独立项目, 非Edu-Hub). 
-飞书8部门群体系: 📊战略材料部 / 📋会议情报部 / ✍️内容市场部 / 💡战略研究部 / 🎓教育产品部 / 📬对外联络部 / 🗓️办公室 / 🔧系统运维部. FEISHU_GROUP_POLICY=open无需@.
+WSL-Windows 交叉诊断(SKILL): wsl-windows-interop. 2026-05-19 更新: 新增纯英文踩坑实录(CMD UTF-8→GBK编码问题)+2个可复用模板(c-drive-analyzer/c-drive-cleanup). 编码预检已作为Section 0固化第一条原则.
 §
 === FLYWHEEL (C类系统) ===
 C012飞书待办: feishu-task-manager.py. 两组分组(👤你的/🤖我的). 子任务必须POST /tasks/{parent_guid}/subtasks (GUID在路径中), 不能用POST /tasks传parent_guid. 子任务不设members. 三层模型: 🌲全景仪表盘+🌳C012行动清单+🌟日工作建议.
@@ -215,6 +213,29 @@ DM为总指挥部，负责跨群调度决策。飞书文档已上传至Hermes生
 群组角色复盘机制已建立：每月1日09:00自动执行cron复盘（job_id: 67d096d2bb7d），按D1-D4四维度评估各群角色配置合理性。skill: group-role-review。还设有一条触发规则：同一群连续3次越界提醒移交时主动触发临时复盘。
 §
 原型交互反馈模式：用户一次性给出多条具体反馈（指向文件名/功能名称），需全部处理完再统一回复，不可逐条确认。用户用英文 ID 指代原型页面（如 "exams" "question_bank" "practice_volumes"）。"补齐"指令默认覆盖全量需求页面，不可只补 P0。
+§
+AI家庭教师 clear-today-records 功能: 学生首页有"🗑️ 清除今日记录"按钮, 路由 @student_bp.route('/practice/clear-today') in routes/student.py:766-831. 功能: ①删除 practice_records ②重置 practice_schedule 状态为assigned ③删除 wrong_questions ④清理旧 practice_sessions + practice_answers. 可发现索引加在 routes/student.py 顶部注释块.
+§
+AI家庭教师质量门禁体系完善(2026-05-19): ① services/question_quality.py — validate_pinyin_format(->valid+errors+warnings三元组), check_data_contract(全题型), validate_question_bank(170题全通过), check_db_integrity ② exam_service.py _sync_to_question_bank()集成非阻断校验 ③ scripts/validate_question_data.py 每日04:00静默运行(5d086ebbf4cc, no_agent, deliver=local) ④ 轻声(中性调)合法不阻断,仅提醒 ⑤ routes/student.py顶部功能索引含clear-today
+§
+Hermes Agent 已升级到 v0.14.0（2026.5.16），git pull fast-forward 从 fef1a4124 到 378bca1d2。config v22→v23 迁移完成，memory_tencentdb 兼容。web_search provider 已切换为 ddgs（DuckDuckGo 免费搜索），零 API Key 运行正常。
+§
+=== 任务分解核心策略 ===
+用户要求：复杂任务做分解时，必须：
+1. 识别**关键路径**——没有这个环节整个系统就无法运作的骨架
+2. 先做**最小闭环**——沿关键路径打通一个完整端到端链路（如教育系统：题入库→学生做题→出结果）
+3. **做透再扩展**——这个闭环要做到扎实可用后，再分层添加其他场景
+4. 避免"一块一块平行切割"——那会导致改左坏右、缺乏连贯性
+5. 正确做法是**切片而非切块**：切片是沿关键路径纵向切出一个完整功能薄片，切块是横向切出互不关联的碎片
+用户举例如教育系统，优先路径是：题入库 → 学生读题做题 → 生成结果。这条路通了，再扩展其他功能。
+§
+工作群路由规则（2026-05-19）：🗓️ 办公室群仅处理办公室职责内事务（日程/健康/作息/待办登记）。所有工作任务必须按8部门体系路由到对应部门群处理，不得在办公室群直接处理跨部门工作事项。路由优先级：凡涉及对外沟通→📬对外联络部，材料制作→📊战略材料部，会议纪要→📋会议情报部，教育相关→🎓教育产品部，其他按对应职责分配。
+§
+重点关注任务筛选规则（2026-05-19 用户确认）："重点关注"仅纳入需要用户亲自行动/决策的事项。凡已进入等待执行阶段（由他人推进、等待最终执行）的事项，移出重点关注转为后台跟踪。用户仅需发邮件催办的任务归类为"发出即可"而非"重点关注"；真正的重点是对反馈汇总后向领导汇报。
+§
+EAST项目关键事件关联：张燕事件=费用率问题（高薪合议现场问询），产品规范问题也是由张燕事件引发（同一次问询中暴露）。两者同一事件根源不是两件事。北京分公司监管通报：京金发[2026]-33号（2026年4月2日收到），点名两个问题——保单销售人员关联表79.6%销售人员编号无法关联、农险赔案扩展信息表78.25%产险产品类型未按枚举值填报，要求5月底前重报。重复补报痛点：月月重复补报同一类问题，历史错误累计，人力消耗大。
+§
+飞书文件上传（upload_all）：先拿 tenant_access_token（FEISHU_APP_ID + FEISHU_APP_SECRET 凭据），再 POST multipart/form-data（5字段）到 /open-apis/drive/v1/files/upload_all。File URL: https://nofile.feishu.cn/file/{file_token}。上传后必在对话中发链接。
 
 ---
-Last synced: 2026-05-18 23:00
+Last synced: 2026-05-19 23:00

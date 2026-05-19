@@ -384,6 +384,201 @@ The entire `<script>` block may have a syntax error that prevents parsing. Since
    - [ ] Use template literals (backticks) for complex HTML-building strings that contain `'` or `"`
    - [ ] After fix, restart Flask app AND verify browser loads correctly (trap: template cache)
 
+### 11. Recurrence Mechanism Audit — When the Same Bug Comes Back
+
+**WHEN the user says "this is an old problem, I've asked about it before" — the same symptom, the same component, reappears after it was supposedly "fixed":**
+
+The initial fix was almost certainly **applied at the wrong layer**. Don't fix again — map the full lifecycle to find where the process broke.
+
+**This is different from all other patterns above.** Those debug code bugs. This debugs **process failures**: the code may be correct now, but the pipeline that creates new data still has the same defect, or the one-off fix was never replicated to all relevant paths.
+
+#### The Three-Layer Fix Model
+
+Every fix operates at one of three layers. Only Layer 3 prevents recurrence:
+
+| Layer | Description | Example | Lasts until? |
+|-------|-------------|---------|-------------|
+| **L1 — Data fix** | Patch existing records in the database | `UPDATE question_bank SET question_text=...` | Next data insert |
+| **L2 — Pipeline fix** | Fix the code/script that generates new data | Fix the generation script to output correct format | Next code change that bypasses this path |
+| **L3 — Gate fix** | Add a validation/guard that catches bad data | `INSERT TRIGGER`, pre-commit hook, CI check, quality gate | Permanent (as long as gate exists) |
+
+**Recurrence always means: the previous fix stopped at L1 or L2 when it should have gone to L3 (or at minimum L2).**
+
+#### The Archived Script Antipattern
+
+**Detect this pattern:** Look in the codebase for fix scripts that:
+- Live in `archived_scripts/`, `scripts/`, `patches/`, or similar
+- Run `UPDATE`/`DELETE` directly on the database
+- Have names like `fix_pinyin_tones.py`, `fix_pinyin_v2.py`, `migrate_v2_data.py`
+- Were run once, then forgotten
+
+This is the single strongest signal that recurrence is coming.
+
+**Why it fails:**
+```
+New data enters via generation script or LLM (same old format)
+    ↓
+Old data was fixed by one-off UPDATE script
+    ↓
+New data has the SAME defects
+    ↓
+User reports the same problem 2 weeks later
+    ↓
+Someone writes fix_v3.py, a fourth script
+    ↓
+(repeat)
+```
+
+**The fix:** Do NOT write fix_v3.py. Instead:
+1. Find the generation entry point (script/LLM/hand-insert)
+2. Add validation at the entry point (L3 gate)
+3. Keep the existing data fix (it's already correct)
+
+#### Mechanism Audit Procedure
+
+**Step 1 — Map the full lifecycle of a single data item**
+
+```
+Source (generation script / LLM prompt / manual insert)
+  ↓
+Storage (INSERT into question_bank / practice_library / exam_questions)
+  ↓
+Retrieval (SELECT ... get_current_question / library_service)
+  ↓
+Processing (practice_engine transformation / type mapping)
+  ↓
+Rendering (Jinja2 template conditionals / JavaScript)
+  ↓
+Display (user-facing UI)
+  ↓
+Fix script (archived_scripts/fix_*.py that corrects data retroactively)
+  ↓
+(back to Source — the cycle continues)
+```
+
+**Step 2 — Mark where past fixes landed**
+
+For each past fix script or code change, note which layer it addressed:
+```
+fix_pinyin_tones.py     → L1 Data fix (UPDATE question_text)
+fix_pinyin_v2.py        → L1 Data fix (UPDATE, better algorithm)  
+generate_lessons.py     → L2? Check if it has the correct output format
+exam_service.py → LLM  → L2? Check if the LLM prompt produces correct format
+```
+
+**Step 3 — Identify the gap**
+
+Ask for EACH arrow between layers:
+- Does the data format survive this arrow?
+- Is there any validation/check at this arrow?
+- If data with the old defect entered the pipeline today, where would it be caught?
+
+**Step 4 — Add the missing gate at the closest point to data entry**
+
+Best practices:
+- **At DB insert level** — SQLite `CHECK` constraint (won't work for complex validation) or application-layer validation in the insert wrapper
+- **At generation script level** — Add an assertion/validation after generation and before INSERT. Example:
+  ```python
+  def validate_pinyin_to_word(q):
+      """Validate that pinyin_to_word questions have correct format"""
+      if q['question_type'] != 'pinyin_to_word':
+          return
+      after_colon = q['question_text'].split('：', 1)[1]
+      syllables = after_colon.split()
+      char_count = len(q['answer'])
+      assert len(syllables) == char_count, \
+          f"pinyin_to_word mismatch: '{after_colon}' ({len(syllables)} syllables) vs '{q['answer']}' ({char_count} chars)"
+  ```
+- **At LLM generation level** — Add a post-generation validation step that parses the output Schema and rejects malformed data (with retry)
+- **At data audit level** — Regular cron check: `SELECT * FROM question_bank WHERE question_type='X' AND (check_condition)` → alert if any fail
+
+**Step 5 — Make the past fix scripts discoverable**
+
+Don't delete the old fix scripts — but add a summary comment at the top of the active code referencing them:
+```python
+# == Known issue traces ==
+# 2026-05-16: pinyin_to_word question_text had Chinese chars instead of pinyin
+#   → fix_pinyin_tones.py, fix_pinyin_v2.py in archived_scripts/
+#   → Root cause: generation scripts didn't validate syllable count
+#   → Gate added: validate_pinyin_to_word() in generation_entry.py
+```
+
+#### Distinguishing Three Fix Imperatives
+
+When a user reports a bug you've seen before, classify it:
+
+| Signal | Appropriate Fix | Don't Do |
+|--------|----------------|----------|
+| Same symptom, same code path unchanged | L1 data fix (data was corrupted again) | Refactor the pipeline |
+| Same symptom, new code path introduced | L2 pipeline fix (new code inherited old defect) | Write another data patch |
+| Same symptom, data was "fixed" before but recurrence expected | L3 gate (add validation, not another fix script) | Write fix_v3.py |
+| Same symptom, **feature already exists but unknown** | Documentation / discoverability fix (route exists, no one knows) | Build the feature again |
+
+**Real-world example (AI家庭教师 看拼音写词语, 2026-05-18):**
+
+Three fix scripts existed: `fix_pinyin_tones.py`, `fix_pinyin_v2.py`, `fix_choose_tone.py`. All three were L1 data fixes — they corrected the `question_text` in the database but did NOT update the generation pipeline or add any validation.
+
+When the user said "this is an old problem", the mechanism audit revealed:
+- L1 fixes: ✅ 3 archived scripts (all worked)
+- L2 fixes: ❌ None — generation scripts still had no format validation
+- L3 fixes: ❌ None — no quality gate at INSERT time
+
+**Correct action:** Add a `validate_pinyin_question()` function and call it in the generation pipeline before INSERT. Do NOT write fix_v3.py.
+
+#### Recurrence Audit Checklist
+
+When a user says "this happened before":
+- [ ] Find all past fix scripts / code changes for this issue
+- [ ] Classify each: L1 data fix, L2 pipeline fix, or L3 gate?
+- [ ] Identify the earliest arrow in the lifecycle where a gate could catch it
+- [ ] Add the gate — NOT another L1 fix
+- [ ] Add a trace comment to the active code linking back to the archived scripts
+- [ ] Verify: inject a bad record through the generation path and confirm the gate catches it
+
+---
+
+### 12. Feature Exists But Unknown — Discoverability Failure
+
+**WHEN the user requests a feature that was already implemented — the code exists, the route works, but neither the user nor the AI knows it's there:**
+
+This is not a code bug. It's a **knowledge management failure**. The feature was built, deployed, and then lost in the noise of subsequent work.
+
+**Diagnostic:**
+
+1. **Search for the feature BEFORE building it**
+   ```bash
+   # Search multiple variants of the feature name
+   grep -rn "clear.today\|clear_today\|清除.*今日\|reset.*today" --include="*.py" --include="*.html"
+   ```
+   Note: `grep` patterns with `.` need escaping, but broader terms like `今日`, `today_records`, `clear` may work.
+
+2. **Check student/home template for UI entry points**
+   - Buttons, links, forms that trigger the feature
+   - The feature may exist but be hidden behind a naming convention the user wouldn't guess
+
+3. **Trace the route registration**
+   ```python
+   @student_bp.route('/practice/clear-today')  # May be clear-today, not clear_today
+   ```
+
+**Prevention — register completed features:**
+
+When a non-trivial feature is completed:
+- [ ] Save it as a skill entry (1-2 line pointer) if it's a standalone capability
+- [ ] Add a reference in the codebase's `KNOWN_FEATURES.md` or equivalent index
+- [ ] For features surfaced by a user request, note the exact search terms that would find it
+
+**Real-world example (AI家庭教师 清除今日记录, 2026-05-18):**
+
+The `clear_today_records()` route existed at `routes/student.py:766` with full implementation (schedule reset + records delete + wrong questions cleanup). The button existed in `templates/student/home.html:332`. But:
+- `search_files("clear_today", ...)` returned 0 results (the route was registered as `clear-today`, hyphens not underscores)
+- The user didn't remember the feature existed
+- No AI assistant working on this project knew about it
+
+**Fix:** Not another implementation. A documentation note — and a more resilient search strategy.
+
+---
+
 ### 9a. Browser Console Fix-Before-Write Workflow
 
 **When you've found a JS syntax error in an inline `<script>` via `new Function()` bisection (section #9), use the browser console to test fixes in-memory before writing to disk:**

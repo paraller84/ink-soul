@@ -478,7 +478,29 @@ else:
 
 **校验规则：** `len(拼音.split()) ≥ len(answer)`。即拼音空格段数应 ≥ 答案字数。
 
-**触发时机：** 任何向 question_bank 写入 `pinyin_to_word` 的操作后应触发校验。agent_pipeline.py 或手动构造脚本的输出都需过此检查。
+**质量门禁方案（正式模块，推荐）：** `services/question_quality.py` 中的 `validate_pinyin_format()` 返回 `(valid, errors, warnings)` 三元组。
+
+```bash
+# 手动运行每日校验
+bash /home/openclaw/.hermes/scripts/validate-ai-tutor-questions.sh
+
+# 或直接调用 Python 模块
+cd ~/edu-hub/ai-family-tutor && python -c "
+from app import create_app
+from services.question_quality import validate_question_bank
+app = create_app()
+with app.app_context():
+    from db import get_db
+    result = validate_question_bank(get_db())
+    print(f'{result[\"passed\"]}/{result[\"total\"]} passed')
+    if result['warnings']:
+        print(f'⚠️ {len(result[\"warnings\"])} warnings (轻声等)')
+    if result['errors']:
+        print(f'❌ {len(result[\"errors\"])} errors')
+"
+```
+
+详见 `services/question_quality.py`（含 check_data_contract 全题型校验、check_db_integrity）。
 
 **修复方法：** 用 `pypinyin` 从 answer 字段重建完整拼音：
 
@@ -547,6 +569,32 @@ db.commit()
 ```
 
 详见 `scripts/add_lesson_source.py`（本会话的完整实现）。
+
+### 6.5 质量门禁体系总览（2026-05-19 新增）
+
+| 门禁维度 | 模块 | 检测时机 | 阻断级别 |
+|:---------|:-----|:---------|:---------|
+| **D6 数据契约** | `services/question_quality.py` | 写入 question_bank、每日 cron 04:00 | 硬阻断（错误）/ 软提醒（轻声） |
+| **拼音完整性** | `validate_pinyin_format()` | 同上 | 硬阻断（音节缺少）/ 软提醒（轻声） |
+| **选择题选项** | `check_data_contract()` | 写入时 | 硬阻断（答案不在选项/选项重复） |
+| **数据库完整性** | `check_db_integrity()` | 每日 cron | 硬阻断（PRAGMA integrity_check） |
+| **pinyin_to_word 批量扫描** | `validate_question_bank()` | 每日 cron | 报告级（不阻断，异常告警） |
+
+**文件清单：**
+- `services/question_quality.py` — 核心验证模块
+- `scripts/validate_question_data.py` — 独立运行脚本（入口）
+- `~/.hermes/scripts/validate-ai-tutor-questions.sh` — cron 包装脚本
+- cron: `5d086ebbf4cc` — 每日 04:00 静默运行（delever=local，无异常不通知）
+
+**调用方式：**
+```bash
+# 验证整库
+python3 scripts/validate_question_data.py
+
+# 验证特定题型
+python3 -c "from services.question_quality import validate_pinyin_format; print(validate_pinyin_format('看拼音写词语：lǐ zi', '李子'))"
+# → (True, [], ['轻声 \'zi\' 无调号，合法但注意'])
+```
 
 `/student/practice/clear-today` 端点涉及 **4 表协调操作**：
 
