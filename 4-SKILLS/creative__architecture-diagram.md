@@ -146,3 +146,7 @@ skill_view(name="architecture-diagram", file_path="templates/template.html")
 ```
 
 The template contains working examples of every component type (frontend, backend, database, cloud, security), arrow styles (standard, dashed, curved), security groups, region boundaries, and the legend — use it as your structural reference when generating diagrams.
+
+## Reference Files
+
+- `references/python-svg-generation.md` — Programmatic SVG generation from Python coordinate data: poly-to-path conversion, scaling, f-string pitfalls, `**kwargs` collision bug, and config-driven multi-version patterns. Useful when generating non-architecture SVGs (maps, charts, custom shapes) with Python scripts.

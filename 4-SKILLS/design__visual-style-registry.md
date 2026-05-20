@@ -29,6 +29,8 @@ tags: [design, css, visual, theme, token, style-guide]
 | V02 | 护眼教育风 | Edu-Hub教育系统、AI家庭教师 | 本文件 §V02 |
 | V03 | 清透极简蓝白风 | 汇报材料PPT、EAST季度会材料 | 本文件 §V03 |
 | V04 | 公司汇报标准风 | 所有公司内部汇报PPT标准风格 | 本文件 §V04 |
+| V05 | 儿童教育暗色风 | 小学男生管理界面（深色三选方案） | 本文件 §V05 |
+| V06 | **清爽蓝天** ✅ 当前使用 | AI家庭教师家长管理端（用户选定） | 本文件 §V06 |
 
 ---
 
@@ -226,10 +228,173 @@ tags: [design, css, visual, theme, token, style-guide]
 
 **飞书文档**：https://nofile.feishu.cn/file/ZO1QbyE9ZoBKAIxVbbzcaQscnQg
 
+---
+
+## V05: 儿童教育暗色风（深色版·三种子风格）
+
+**触发场景**：AI家庭教师家长管理端、教育App深色模式、小学男生使用的管理系统
+
+**设计背景**：用户要求在现有暗色布局基础上调整配色，目标受众为**小学男生**，需兼顾视觉吸引力与抗疲劳需求。
+
+**三种配色范式（子风格）：**
+
+| 编号 | 名称 | 定位 | 核心色彩 | 抗疲劳设计 |
+|:-----|:------|:------|:---------|:-----------|
+| V05-A | **宇宙深蓝** 🌌 | 科技探索·太空游戏感 | 深空蓝底 `#070d1a` + 亮蓝强调 `#38bdf8` | 卡瓦蓝低对比背景，亮蓝仅用于强调色 |
+| V05-B | **翠绿森林** 🌿 | 自然柔和·顶级护眼 | 墨绿底 `#070f0a` + 翠绿强调 `#4ade80` | 绿光波长居中不易疲劳，背景最低对比 |
+| V05-C | **暖橙活力** 🔥 | 温暖阳光·积极亲切 | 暖褐底 `#0a0705` + 金橙强调 `#fbbf24` | 暖色系低蓝光刺激，温馨感降低用眼紧张 |
+
+### V05-A: 宇宙深蓝
+
+```css
+:root {
+  --bg-primary: #070d1a;
+  --bg-card: #0f1a2e;
+  --bg-card-hover: #14213d;
+  --bg-hero: linear-gradient(135deg,#0f2942,#1a1a3e);
+  --text-primary: #e2e8f0;
+  --text-secondary: #64748b;
+  --accent-primary: #38bdf8;   /* 亮蓝 — 太空主题 */
+  --accent-success: #34d399;   /* 翠绿 */
+  --accent-warning: #fbbf24;   /* 琥珀 */
+  --accent-purple: #a78bfa;    /* 淡紫 */
+  --accent-pink: #f472b6;      /* 淡粉 */
+  --accent-orange: #fb923c;    /* 暖橙 */
+  --border-color: #1a2d4a;
+}
+```
+**适合场景**：三年级以上男孩、偏喜欢科技/游戏/太空题材的儿童
+
+### V05-B: 翠绿森林
+
+```css
+:root {
+  --bg-primary: #070f0a;
+  --bg-card: #0f1f14;
+  --bg-card-hover: #152a1c;
+  --bg-hero: linear-gradient(135deg,#0d2818,#1a2e1a);
+  --text-primary: #dcfce7;     /* 偏绿白 */
+  --text-secondary: #6b7280;
+  --accent-primary: #4ade80;   /* 翠绿 */
+  --accent-cyan: #2dd4bf;      /* 青绿 */
+  --accent-warning: #facc15;   /* 金黄 */
+  --accent-purple: #e879f9;    /* 淡紫 */
+  --accent-pink: #fb7185;      /* 淡粉 */
+  --accent-orange: #fb923c;    /* 暖橙 */
+  --border-color: #1a3a24;
+}
+```
+**适合场景**：长时间使用（>30min）、低龄段儿童、视觉敏感易疲劳的用户
+
+### V05-C: 暖橙活力
+
+```css
+:root {
+  --bg-primary: #0a0705;
+  --bg-card: #1f140e;
+  --bg-card-hover: #2a1c14;
+  --bg-hero: linear-gradient(135deg,#2d1b0e,#3a1f0e);
+  --text-primary: #fef3c7;     /* 偏暖白 */
+  --text-secondary: #6b7280;
+  --accent-primary: #fbbf24;   /* 金橙 */
+  --accent-blue: #38bdf8;      /* 亮蓝 */
+  --accent-green: #34d399;     /* 翠绿 */
+  --accent-purple: #a78bfa;    /* 淡紫 */
+  --accent-pink: #fb7185;      /* 淡粉 */
+  --accent-orange: #f97316;    /* 暖橙 */
+  --border-color: #3a2818;
+}
+```
+**适合场景**：需要营造温暖积极氛围的界面、偏活泼好动的儿童
+
+### 使用说明
+
+- 三种子风格共享相同布局结构（同 V01 暗色科技风），仅替换色值
+- 选择依据：用户年龄段 + 使用时长 + 视觉偏好
+- V05-B 护眼最佳（绿色光谱中段，睫状肌调节最小）
+- V05-A 吸引力最强（太空主题对男童天然吸引力）
+- V05-C 情绪最积极（暖色提升多巴胺分泌）
+
+## V06: 清爽蓝天（家长管理端·当前主题）
+
+**触发场景**：AI家庭教师家长管理端、小学男生使用的家长中心界面
+
+**设计背景**：用户要求非深色布局，适合小学男生审美且防止视觉疲劳。选择「清爽蓝天」方案——蓝天白云般干净明快，低刺激护眼。
+
+### CSS Token (CSS变量)
+
+```css
+:root {
+  /* 页面底色 — 柔和的天空蓝 */
+  --bg-page: #f0f7ff;
+  /* 卡片底色 — 纯白 */
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8fbff;
+  /* 头部渐变 — 浅蓝到天蓝 */
+  --bg-hero: linear-gradient(135deg, #dbeafe, #e0f2fe);
+  /* 文字 */
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --text-hero: #1e40af;
+  /* 主色调 — 天空蓝 */
+  --accent: #0284c7;
+  --accent-hover: #0369a1;
+  --accent-light: #dbeafe;
+  /* 边框 */
+  --border-color: #dce8f5;
+  --border-hover: #93c5fd;
+  /* 辅助色 */
+  --success: #16a34a;
+  --warning: #d97706;
+  --error: #dc2626;
+  --info: #0284c7;
+  --purple: #7c3aed;
+  --pink: #ec4899;
+  --orange: #f97316;
+}
+```
+
+### 实现方式
+
+- `static/css/parent-theme.css` — 以 `.parent-theme` 为作用域的所有UI组件覆盖
+- `parent-theme.css` 使用 `!important` 安全覆盖确保深色内联样式被覆盖
+- body 标签添加 `class="parent-theme"` 启用主题
+- 学生端不受影响（无 parent-theme class）
+
+### 使用示例
+
+AI家庭教师家长端12个页面全部继承此风格，包括：语文主页、古诗/课文、出题设置、学习报告、字词详情、题库、练习卷、内容管理、练习计划、积分管理、拍照批改、家长仪表盘。
+
+### 选择记录
+
+用户对比了 V05 三套深色方案（深蓝/翠绿/暖橙）后拒绝了所有深色，选择了浅色方案 V06。这对未来配色决策有参考价值——**小学男生的家长管理界面，浅色明快风格优于深色科技风**。深色风格虽视觉冲击力强，但长时间使用易视觉疲劳，且不符合儿童学习的心理学氛围。
+
+### 实现架构（可复用）
+
+```html
+<!-- base.html: 添加 body_class block -->
+<body class="{% block body_class %}{% endblock %}">
+
+<!-- 每个页面: 启用主题 -->
+{% block body_class %}parent-theme{% endblock %}
+{% block head_extra %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/parent-theme.css') }}">
+{% endblock %}
+
+<!-- parent-theme.css: 以 .parent-theme 为作用域 -->
+.parent-theme { background: #f0f7ff; color: #1e293b; }
+.parent-theme .pg-card { background: #ffffff; border-color: #dce8f5; }
+```
+这种通过 body_class + 作用域 CSS 的架构，可以安全地对 **页面子集** 应用不同主题，而不影响主 CSS 体系。无需修改任何全局 CSS，所有覆盖都在独立文件中。`!important` 用于确保覆盖内联 `<style>` 块中的深色值。
+
+---
+
 ## 更新规范
 
 | 信号 | 动作 |
 |:-----|:-----|
 | 用户说「配色改一下」 | 新增变体或修改现有Token |
+| 用户对儿童配色表达偏好 | 在V05子风格中新增或调整 |
 | 新场景出现（如汇报风→运营风） | 新增V0N记录 |
 | 用户对已有风格表达偏好修正 | 更新对应Token值，标注变更日期 |

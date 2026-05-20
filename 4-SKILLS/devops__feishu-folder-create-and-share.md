@@ -382,7 +382,7 @@ print(f"Document has {len(children)} child blocks")
 - `advisory-v<版本号>-<角色>.md`（顾问团评估文档）
 - `<场景名>-v<版本号>.md`（其他文档缓存）
 
-### 9. .env 文件中的 app_secret 被 terminal tool 遮蔽（🐛 2026-05-19）
+### 7. .env 文件中的 app_secret 被 terminal tool 遮蔽（🐛 2026-05-19）
 
 **症状**：直接读取 `~/.hermes/.env` 获取 `FEISHU_APP_SECRET` 时，terminal tool 输出显示为截断值（如 `dR2RKx...bi1E`），导致后续 token 请求返回 `"app secret invalid"`。
 
@@ -405,28 +405,20 @@ token = get_fei_token()  # 自动从 .env 读取完整值
 
 **预防**：从 `.env` 中读取敏感配置值时，优先使用专门的配置读取模块（如 `feishu_tokens`），而非直接 `cat` 解析。
 
-### 10. 父文件夹 token 有效性检查
+### 8. 文件夹 token 不应写入 MEMORY（🐛 2026-05-20）
 
-**症状**：创建子文件夹或上传文件时返回 `HTTP 404`。
+**症状**：从 Persist MEMORY 中读取的文件夹 token（如 Token管理体系）可能已漂移。MEMORY 中的 token 没有 `validate_all()` 等校验机制保护，漂移后只能通过 API 重新发现。
 
-**根因**：注册表中的父文件夹 token 可能已漂移或文件夹被删除。例如 2026-05-16 发现内容工厂 token `OaHdfQM9flT1vudSxmFcHVRMnEg` 返回 404。
+**修复**：不要将文件夹 token 写入 agent MEMORY。所有 token 应仅存放在 `feishu_folder_tokens.json` 注册表中，并通过 `validate_all()` 定期校验。MEMORY 中只存 Token 注册表的文件路径（`~/.hermes/feishu-tokens.json`），不缓存具体 token。
 
-**修复**：上传前先通过 `list files` API 验证父文件夹是否存在：
-```python
-# 验证父文件夹 token
-url = f"https://open.feishu.cn/open-apis/drive/v1/files?folder_token={parent_token}&page_size=1"
-req = urllib.request.Request(url, headers=headers)
-resp = json.loads(urllib.request.urlopen(req, timeout=10).read())
-if resp.get("code") != 0:
-    # 父文件夹 token 不可用——需要找到可用的父文件夹
-    # fallback: 使用 Hermes生成文件夹 (Otppfr9EelPIawdezL2csUXCnoh)
-    print(f"⚠️ 父文件夹 token {parent_token} 不可用 (code={resp.get('code')})，改用 Hermes生成文件夹")
-    parent_token = "Otppfr9EelPIawdezL2csUXCnoh"
-```
+**实际案例**（2026-05-20）：Token管理体系 folder token 在 MEMORY 中存为 `UVFgdIdB3oBkyKx39qwcxRpsnqf`，但实际有效 token 为 `IIE4fT1MAluN4wdCt00cj4Syncb`，导致上传报告时报 `1061044: parent node not exist`。
 
 **预防**：
-- 不要在 memory 和 SKILL.md 中缓存文件夹 token 作为"可用状态"——每次会话前通过 list API 验证
-- 如果在注册表中发现 404 token，在 feishu_folder_tokens.json 中添加 `"drifted": true` 标记
+- 在任何技能/script 中引用 folder token 时，优先调用 `resolve_folder_token()` 实时获取，而非信任存储的值。
+- 如果 token 必须缓存，写入 feishu-tokens.json 注册表而非 MEMORY。
+- 上传文件前先验证父文件夹 token 的有效性（用 list files API 探测）。
+
+### 空文档陷阱（原 pitfall 10 关联内容）
 
 使用 `POST /open-apis/docx/v1/documents` 创建的飞书文档是**空文档**（仅含标题）。如果只创建不填充，用户在飞书中打开看到的是一份空白页。
 

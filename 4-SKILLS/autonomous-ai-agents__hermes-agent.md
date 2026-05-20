@@ -30,7 +30,8 @@ People use Hermes for software development, research, system administration, dat
 
 **Docs:** https://hermes-agent.nousresearch.com/docs/
 
-**Reference files in this skill:**\n- `references/cloud-models-deepseek.md` — DeepSeek provider config, router tiers, multi-model strategy\n- `references/token-savior-integration.md` — Token Savior MCP server: install, register, 53 tools by category, C005 integration mapping\n- `references/upgrade-git-clone.md` — Upgrading Hermes from git clone (git pull → doctor --fix → verify plugins → enable new features)
+**Reference files in this skill:**\\n- `references/cloud-models-deepseek.md` — DeepSeek provider config, router tiers, multi-model strategy\\n- `references/token-savior-integration.md` — Token Savior MCP server: install, register, 53 tools by category, C005 integration mapping\\n- `references/upgrade-git-clone.md` — Upgrading Hermes from git clone (git pull → doctor --fix → verify plugins → enable new features)\\n- `references/compression-tuning.md` — Compression threshold tuning, empty session root cause analysis, per-model recommendations
+- `references/deferred-reconstruction.md` — Deferred compression reconstruction: full implementation details, code snippets, data flow, edge cases, recovery
 
 ## Quick Start
 
@@ -386,6 +387,8 @@ Edit with `hermes config edit` or `hermes config set section.key value`.
 | `agent` | `max_turns` (90), `tool_use_enforcement` |
 | `terminal` | `backend` (local/docker/ssh/modal), `cwd`, `timeout` (180) |
 | `compression` | `enabled`, `threshold` (0.50), `target_ratio` (0.20) |
+
+> **⚠️ Threshold tuning trap**: `threshold` is a ratio of the model's context window. On a 64K model, threshold=0.10 = only 6,400 tokens → system prompt overhead (6-12K) ALONE can exceed this, leaving zero room for real conversation. Result: compression fires after 2-5 messages, creating empty orphan sessions. See `references/compression-tuning.md` for detailed calculations and per-model recommendations.
 | `display` | `skin`, `tool_progress`, `show_reasoning`, `show_cost` |
 | `stt` | `enabled`, `provider` (local/groq/openai/mistral) |
 | `tts` | `provider` (edge/elevenlabs/openai/minimax/mistral/neutts) |
@@ -807,8 +810,18 @@ Common gateway problems:
 - **Slack bot only works in DMs**: Must subscribe to `message.channels` event. Without it, the bot ignores public channels.
 - **Windows HTTP 400 "No models provided"**: Config file encoding issue (BOM). Ensure `config.yaml` is saved as UTF-8 without BOM.
 
-### Auxiliary models not working
-If `auxiliary` tasks (vision, compression, session_search) fail silently, the `auto` provider can't find a backend. Either set `OPENROUTER_API_KEY` or `GOOGLE_API_KEY`, or explicitly configure each auxiliary task's provider:
+### Empty orphan sessions (message_count=0)
+
+If `hermes sessions list` shows many sessions with 0 messages, the root cause is typically **compression firing too aggressively**:
+
+1. Check your threshold: `grep threshold ~/.hermes/config.yaml`
+2. Calculate effective trigger: `model_context_window × threshold = X tokens`
+3. If X ≤ system_overhead + 5,000, compression fires before any real conversation happens
+4. Each compression rotation creates a new session DB row — if the user doesn't continue (closes app, switches topic), that row becomes an empty orphan
+
+**Fix**: Raise `compression.threshold` per the recommendations in `references/compression-tuning.md`. For a 64K model like DeepSeek V4 Flash, 0.35 (~22,400 token trigger) is a good starting point.
+
+**Deep fix**: Implement deferred reconstruction — skips DB session rotation until the user sends the next message, eliminating empty sessions entirely. Full implementation in `references/deferred-reconstruction.md`.\n\n### Auxiliary models not working\nIf `auxiliary` tasks (vision, compression, session_search) fail silently, the `auto` provider can't find a backend. Either set `OPENROUTER_API_KEY` or `GOOGLE_API_KEY`, or explicitly configure each auxiliary task's provider:
 ```bash
 hermes config set auxiliary.vision.provider <your_provider>
 hermes config set auxiliary.vision.model <model_name>

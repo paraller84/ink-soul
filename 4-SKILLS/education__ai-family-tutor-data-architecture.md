@@ -76,6 +76,29 @@ practice_schedule（计划 — 哪天做哪个库）
   Phase 2-3 (2): student_settings, practice_records.answer_choices
 ```
 
+### ⚠️ SQL列名高频陷阱（日常开发必查）
+
+实际操作中**经常发现**设计文档与实际表结构不一致。**任何新路由/模板编写前，必须先 `PRAGMA table_info(<表名>)` 确认实际列名。**
+
+| 表 | 设计文档/直觉 | 实际列名 | 影响 |
+|:---|:-------------|:---------|:-----|
+| `textbook_lessons` | `.title` | **`.lesson_title`** | `SELECT tl.title` → `no such column` |
+| `textbook_lesson_texts` | `.content` | **`.source_text`** | `t.content` 在模板中为空 |
+| `textbook_lesson_texts` | `.title` | **❌ 不存在** | 需JOIN `textbook_lessons.lesson_title` |
+| `textbook_lesson_texts` | `.sort_order` | **❌ 不存在** | 改用 `.id` 排序 |
+| `textbook_chars` | `.lesson_number` | **❌ 不存在** | 需JOIN `textbook_lessons` 获取 |
+| `textbook_words` | `.lesson_number` | **❌ 不存在** | 需JOIN `textbook_lessons` 获取 |
+
+**路线修复模式（遇到 `no such column` 时）：**
+```python
+# 1. 先查实际结构
+cols = db.execute('PRAGMA table_info(textbook_lessons)').fetchall()
+for c in cols: print(dict(c))
+
+# 2. 用正确列名重写查询
+# 3. 在模板中补充字段别名（如 t['title'] = t['lesson_title']）
+```
+
 ### L1 内容源（6张表）
 
 #### exam_papers — 试卷卷头
@@ -745,6 +768,8 @@ with app.app_context():
 
 | 表 | 设计文档有 | 实际无 | 影响 |
 |:---|:-----------|:-------|:-----|
+| `textbook_lessons` | `title` | **`lesson_title`**（不是`title`） | `tl.title` → SQL 报错 |
+| `textbook_lesson_texts` | `content`, `title`, `sort_order` | **`source_text`** 替代 `content`；`title` ❌ 不存在；`sort_order` ❌ 不存在 | JOIN textbook_lessons 获取标题；用 `.id` 排序 |
 | `question_bank` | `lesson_number`,  `coverage` | `lesson_number` ✅ **已添加 (2026-05-17)** | ★ 经回填85题后上线，覆盖第5、6单元全部题目 |
 | `practice_schedule` | `created_at` | ❌ 不存在 | INSERT 时去掉 `created_at` |
 | `practice_library` | `student_id` (设计文档有) | ✅ 实际有 | 保持使用即可 |

@@ -230,6 +230,53 @@ head -11 script.py
 
 → 节省 93% 的文件读取输入。
 
+### 🔴 反模式 7：会话连续性税（Conversation Continuity Tax）
+
+**特征**：单次飞书对话的消息数持续增长（50→100→300条），每次用户回复/继续时，整个历史上下文被重新加载。这是**成本最高但最容易被忽视**的税。
+
+**诊断**：
+
+```sql
+-- 飞书会话按消息数分组，看成本分布
+SELECT 
+  CASE 
+    WHEN m.msg_count <= 20 THEN '1-20条'
+    WHEN m.msg_count <= 50 THEN '21-50条'
+    WHEN m.msg_count <= 100 THEN '51-100条'
+    WHEN m.msg_count <= 200 THEN '101-200条'
+    ELSE '201+条'
+  END as msg_range,
+  COUNT(*) as sessions,
+  ROUND(AVG(s.input_tokens), 0) as avg_input,
+  ROUND(AVG(s.input_tokens) / NULLIF(AVG(m.msg_count), 0), 0) as avg_input_per_msg,
+  ROUND(SUM(s.input_tokens+s.output_tokens)/1000, 0) as total_k
+FROM sessions s
+JOIN (SELECT session_id, COUNT(*) as msg_count 
+      FROM messages GROUP BY session_id) m ON m.session_id = s.id
+WHERE s.source='feishu' AND s.started_at > strftime('%s','now','-7 days')
+GROUP BY msg_range ORDER BY MIN(m.msg_count);
+```
+
+**典型结果：** 21+条消息的会话贡献了 90%+ 的成本，但数量只占 30%。一条 400 条消息的会话，最后 10 条消息的每次成本是最初 10 条的 20 倍。
+
+**聚合方案：主动会话拆分**
+
+```python
+# 模式 A：话题切换时主动 /new
+# 用户说"继续上次的XX" → 不要在当前会话继续
+# 而是用 session_search 找到历史结论，在新会话中重启
+
+# 模式 B：大 HTML 输出 → 飞书上传发链接（替代在对话中输出全文）
+# 例：生成报告后，upload_all 到飞书，只发链接
+# 效果：不把几万 chars 的 HTML 代码塞进上下文下一轮
+```
+
+**成本收益：**
+| 行为 | 当前成本（50轮） | 优化后（每10轮 /new） | 节省 |
+|:----|:---------------:|:--------------------:|:----:|
+| 50轮对话 | 15-20K 输入/轮，末轮极高 | 8-10K 输入/轮，稳定 | **35-50%** |
+| 大HTML回显 | 输出 30-50K → 下一轮输入 +30-50K | 飞书链接 0.2K | **~100%** |
+
 ## 五大策略优先级
 
 | 策略 | 代码改动 | 预期节省 | 适用场景 |
@@ -240,6 +287,7 @@ head -11 script.py
 | 4️⃣ 微小命令合并 | 零 | 3-5% | 文件操作密集型任务 |
 | 5️⃣ 记忆瘦身 | 中等（重写 MEMORY.md） | **60-80% 固定开销** | 所有会话，持续性最大 |
 | 6️⃣ 知识检索路径优化 | 零（行为习惯） | **93%/次 文件读取** | 需要了解系统时 |
+| **7️⃣ 会话连续性税减免** | **零（行为习惯）** | **35-50% 长对话成本** | **飞书对话 ≥50 条消息时** |
 
 ## 自动分叉阈值（Fork-on-Heavy）
 
@@ -259,6 +307,7 @@ head -11 script.py
 - **正在调试**：检测到 `read_file(某脚本)` → `patch(同脚本)` → `terminal(跑测试)` 的三元组
 - **批量读取**：连续 3+ 次 read_file 针对不同文件，无中间输出
 - **重复样板**：2+ execute_code 包含相同的 boilerplate（如 Feishu token 获取）
+- **📞 会话连续性税**：飞书会话消息数 ≥ 80 且输入/输出比 > 3:1 → 建议用户 /new 新会话继续
 
 ### 会话健康度指标
 

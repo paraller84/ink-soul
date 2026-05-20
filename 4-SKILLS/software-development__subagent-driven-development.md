@@ -1,7 +1,7 @@
 ---
 name: subagent-driven-development
-description: "Execute plans via delegate_task subagents (2-stage review + blinded spec compliance + 2-round escalation + Aider integration). v1.3.0: Aider as implementation engine for coding subagents."
-version: 1.3.0
+description: "Execute plans via delegate_task subagents (2-stage review + blinded spec compliance + 2-round escalation + Aider integration + delivery audit gate). v1.4.0: Added delivery audit gate (Step 4) — independent prototype-vs-code audit before declaring 'done'. Complements the existing implementer→reviewer→quality pipeline with a third-party design conformance check."
+version: 1.4.0
 author: Hermes Agent (adapted from obra/superpowers)
 license: MIT
 platforms: [linux, macos, windows]
@@ -210,6 +210,71 @@ delegate_task(
     toolsets=['terminal', 'file']
 )
 ```
+
+### 4. Delivery Audit Gate (v1.4.0 新增 — 监督分离原则的第三环)
+
+**这是宣告"已完成"之前的最后一道门禁。** 在 Final Review 通过后、正式交付前，必须执行一次独立交付审计。
+
+**为什么需要第三环？** 两阶段审核（spec compliance + code quality）只验证"代码写对了没有"，不验证"所有页面都做了没有"。原型HTML中的页面可能根本没写代码，但代码审核会认为它不相关因此不报告。交付审计专门捕获这种 **"疏漏型偏差"**（代码对，但页面没做）。
+
+**审计者 = 全新的 SubAgent，不知情、不带设计上下文、不读我的交付声明。**
+
+```
+Final Review PASS
+    ↓
+触发 delegate_task → 交付审计 SubAgent（全新会话）
+    ↓
+审计 SubAgent 只接收：
+  ┌── 本次交付涉及的原型HTML文件清单
+  ├── 每个原型HTML的飞书下载链接
+  ├── 实际代码文件路径
+  └── 验收条件清单（可选，与原型对照互补）
+    ↓
+逐项对照：
+  1. 对每个原型HTML，提取其页面结构和功能模块清单
+  2. 在代码中查找对应实现
+  3. 标注 ✅（完全对齐）/ ⚠️（部分对齐）/ ❌（未对齐）
+    ↓
+输出：
+  ┌ 审计报告（HTML格式）
+  ├ 逐项对照矩阵
+  └ 最终判决：✅ ALL PASS 或 ❌ FAIL（列出差异）
+
+    ↓
+  ✅ ALL PASS → 可以宣告"已完成"
+  ❌ FAIL → 回到编码 + 审核循环（不超过2轮）→ 仍FAIL则升级到Hermes决策
+```
+
+**交付审计 SubAgent 上下文模板：**
+
+```
+你是一个独立的交付审计员。你只做一件事：检查代码是否实现了原型设计。
+
+规则：
+1. 你不知道设计者的"已完成"声明——你的判定完全基于证据
+2. 你从链接下载原型HTML文件
+3. 你逐项对比"原型设计" vs "实际代码"的每个功能模块
+4. 对每项标记：
+   ✅ = 完全对齐（功能、布局、数据展示都与原型一致）
+   ⚠️ = 部分对齐（功能大致存在但有偏差）
+   ❌ = 未对齐（功能缺失或实现方式完全不同）
+5. 输出表格：
+   | # | 原型页面 | 功能模块 | 原型设计 | 实际实现 | 结论 |
+6. 你的判决影响交付——如果有 ❌ 则必须返回编码修复
+
+注意：你是冷酷的。不要因为"代码看起来是正确的"就放过未实现的页面。
+```
+
+**交付审计与审核SubAgent的区别：**
+
+| 维度 | 审核SubAgent（第二步） | 交付审计SubAgent（第四步） |
+|:----|:----------------------|:--------------------------|
+| 检查范围 | 验收条件的 each criterion | 原型HTML的 each page/module |
+| 检查方式 | 二进制 YES/NO（是否符合spec） | 视觉+功能对比（是否与原型一致） |
+| 参考物 | 验收条件清单 | 原型HTML文件 |
+| 发现偏差类型 | "代码写了但没按规范" | "页面完全没做" 或 "加了需求中没有的" |
+
+**注意：** 如果用户已设置了每日监督审计cron，此步骤的审计结果会与cron审计互补——交付审计捕获当前批次的问题，cron审计捕获跨批次累积的问题。
 
 ### 4. Verify and Commit
 

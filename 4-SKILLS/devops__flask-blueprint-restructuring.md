@@ -469,6 +469,72 @@ tests = [
 ]
 ```
 
+## CSS Theme Switching Architecture
+
+When a Flask application needs **different color themes for different user roles** (e.g., light/colorful parent theme vs dark/neutral student theme), use the **scope-based CSS override pattern** to avoid touching every template:
+
+### Architecture
+
+```python
+# base.html — add block for body class
+<body class="{% block body_class %}{% endblock %}">
+  {% block content %}{% endblock %}
+</head>
+```
+
+```css
+/* static/css/parent-theme.css — scoped under .parent-theme */
+.parent-theme {
+  background: #f0f7ff;
+}
+.parent-theme .pg-card {
+  background: #ffffff;
+  border: 1px solid #dce8f5;
+}
+/* Use !important when inline <style> blocks in templates have dark hardcoded colors */
+.parent-theme .stat-card { background: #ffffff !important; }
+```
+
+```jinja
+{# Each parent page adds just 2 blocks #}
+{% extends "base.html" %}
+{% block body_class %}parent-theme{% endblock %}
+{% block head_extra %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/parent-theme.css') }}">
+{% endblock %}
+```
+
+### Key Design Decisions
+
+| Decision | Why |
+|----------|-----|
+| **Scope under body class, not :root** | Student pages don't get parent-theme. Zero risk of leakage. |
+| **`!important` for inline-style override** | Many templates have dark hardcoded `<style>` blocks from prototype-driven development. `!important` in the external CSS wins without touching each template's inline styles. |
+| **`{% block body_class %}` in base.html** | Minimal template change — just add `class="{{ block body_class }}"` to body tag in base.html, all pages inherit. |
+| **Separate CSS file, not inline** | Cacheable across pages, easy to swap themes, avoids duplicating CSS across 12+ templates. |
+
+### When to Use
+
+- Parent/admin gets a light/branded theme while student/user keeps a different look
+- A subset of pages needs theme isolation without CSS variables polluting global scope
+- The app already has hardcoded inline styles in templates (common in prototype-driven development)
+
+### Pitfalls
+
+- **!important maintenance burden**: Too many `!important` rules make future CSS changes fragile. Use only for overriding established inline styles; write new CSS without `!important`.
+- **body_class not set**: If a new page template forgets `{% block body_class %}parent-theme{% endblock %}`, it falls back to the default theme. Add a smoke test that checks for the class in rendered HTML.
+- **Template inheritance order**: `head_extra` is in `<head>`, inline `<style>` blocks are in `<body>` (inside `{% block content %}`). External CSS in `<head>` is overridden by later `<style>` in `<body>` — hence the need for `!important`. To avoid `!important`, load the theme CSS in a `{% block theme_styles %}` block placed AFTER `{% block content %}` in base.html.
+
+### Actual Implementation Example
+
+AI家庭教师 12 parent pages, all converted from dark to light blue (#f0f7ff) theme:
+- `static/css/parent-theme.css` — 200+ lines of `.parent-theme` scoped overrides
+- `templates/base.html` — added `{% block body_class %}`
+- Each parent template — added `body_class` + `head_extra` (2 lines each)
+- Verification: grep parent-theme class in rendered HTML
+
+---
+
 ## Known Traps
 
 1. **`req_role` survivor** — When removing Mode 2 authentication from `require_role`, the logger.warning call on the failure path still references `req_role`. Remove or replace the format argument.

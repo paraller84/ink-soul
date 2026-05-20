@@ -1105,5 +1105,6 @@ Hermes生成文件夹 (FEISHU_LLM_FOLDER_TOKEN)
 | `references/key-persona-suggestion-template.md` | 关键人画像更新建议完整模板 |
 | `references/version-evolution-analysis-template.md` | 版本演化分析报告模板 |
 | `references/feishu-doc-versioning.md` | 飞书文档版本管理规则 |
+| `references/wechat-report-to-leadership.md` | **微信汇报稿模式** — 向领导（如苏金华总）微信汇报项目进展的标准化结构、写作原则、迭代流程和归档规则。区别于PPT/正式文档，核心特征是极简短、纯文本、结论先行。 |
 | `references/quality-scorecard-detailed.md` | 5维度质量评分卡详细评分细则 |
 | `references/governance-report-narrative-patterns.md` | 治理类汇报的7种叙事模式：工具四大场景、审计交叉验证、风险→机遇转折弧、协作框架案例推演、三段式监管定位框架、重点任务转深水区追踪、跨邮件/会议素材实况填报 |
