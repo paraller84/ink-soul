@@ -17,6 +17,7 @@ metadata:
       - 月度数据质量报告的多版本保留
       - 管理者视角的双轨邮件分流（CC/TO不同处理规则）
       - 邮件要点提炼 + 回复草稿自动拟写
+      - 从历史邮件附件中提取文档内容（PDF/xlsx/7z等）
 ---
 
 # 邮件→知识库分类管道
@@ -481,7 +482,7 @@ python3 phase2_style_learn.py --dry-run              # 仅分析不更新
 - `references/style_profile.yaml` — 邮件风格画像文件（三风格矩阵基准 + 持续迭代记录）
 - `references/pipeline-implementation-ref.md` — 已部署脚本路径、CLI 命令、Cron 配置速查
 - `references/phase2-implementation-reference.md` — Phase 2 实施参考（脚本CLI/输出格式/风格基准/cron配置/群组chat_id速查）
-- `~/.hermes/scripts/email/README-WINDOWS-DEPLOY.md` — 公司电脑部署指南
+- `references/historical-attachment-extraction.md` — 从历史 .eml 附件中提取文档内容（7z/PDF/xlsx 全流程）
 - `~/.hermes_tools/email_classifier/timeline.md` — EAST工作时间线（自动生成）
 
 ## 已知约束

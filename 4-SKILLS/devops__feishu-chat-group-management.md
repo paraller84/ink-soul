@@ -527,6 +527,28 @@ curl -s -X POST "https://open.feishu.cn/open-apis/drive/v1/metas/batch_query" \
 # 预期: {"code":0,"data":{"metas":[...]}}
 ```
 
+**L2.5 — 检查群聊健康状况（新增）**
+
+确认 Bot 在目标群中且群状态正常：
+```bash
+TOKEN=$(python3 -c "
+import json, os, urllib.request
+# 从 .env 读取凭证
+for line in open(os.path.expanduser('~/.hermes/.env')):
+    line = line.strip()
+    if line.startswith('FEISHU_APP_ID='): app_id = line.split('=',1)[1]
+    if line.startswith('FEISHU_APP_SECRET='): app_secret = line.split('=',1)[1]
+body = json.dumps({'app_id': app_id, 'app_secret': app_secret}).encode()
+req = urllib.request.Request('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', data=body, headers={'Content-Type': 'application/json'})
+print(json.load(urllib.request.urlopen(req))['tenant_access_token'])
+")
+
+# 检查群聊状态
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'https://open.feishu.cn/open-apis/im/v1/chats/oc_xxx' | python3 -m json.tool
+```
+预期返回包含 `chat_status: "normal"`, `bot_count: "1"`, `chat_mode: "group"`。如果 `chat_status` 不是 `normal` 或 `bot_count` 为 0，说明 Bot 不在群内或群异常。
+
 **L3 — 检查消息发送 API**
 ```bash
 # 使用 Python 构造（避免 JSON 双重编码陷阱）
@@ -555,12 +577,62 @@ tail -20 ~/.hermes/logs/gateway.log
 ps aux | grep -i 'hermes_cli.*gateway' | grep -v grep
 ```
 ⚠️ **关键诊断陷阱**：在 watchdog 模式下，`systemctl --user status hermes-gateway.service` 可能显示 `inactive (dead)`，但网关实际上由看门狗脚本启动（PID 独立于 systemd）。**不要仅依赖 systemctl 判断网关是否存活**——用 `ps aux` 或 `pgrep` 二次确认。
-
 **L5 — 消息投递验证**
+
 在各群发送测试消息，确认 Bot 能接收并响应。检查：
 - 群聊中的消息是否被 Bot 接收（WebSocket 事件）
 - Bot 能否正确回复
 - 确认 `FEISHU_GROUP_POLICY=open` 是否生效（无需 @ 即可响应）
+
+⚠️ **关键先决检查**：在执行此步骤前，应先完成 L6（SEND vs RECEIVE分离诊断）——先确认 Gateway 是否能收到入站消息，否则即使发了测试消息，Bot 也不会响应（不是发信的问题）。
+
+**L6 — SEND vs RECEIVE 分离诊断（关键陷阱）**
+
+> ⚠️ **出信能力 ≠ 收信能力**。能成功向群发送消息（send_message 返回 success）**不代表 Bot 能接收该群的消息**。这是两个独立的飞书平台能力，由不同的配置控制。
+
+**诊断步骤：**
+
+1. **验证出信（send）是否正常** — 用网关的 `send_message` 工具发送测试消息到目标群
+2. **验证收信（receive）是否正常** — 检查网关日志中是否出现过该群的入站消息：
+
+```bash
+# 搜索网关日志中某群聊的入站消息
+grep -i 'Inbound.*message received.*chat_id=oc_xxx' ~/.hermes/logs/gateway.log
+
+# 搜索所有非 DM 的群消息
+grep 'Inbound.*message received.*chat_id=oc_' ~/.hermes/logs/gateway.log | grep -v 'oc_575e28286dba895bd619f911399b7d01'
+
+# 查看最近是否收到过该群的消息
+tail -500 ~/.hermes/logs/gateway.log | grep -B1 -A1 'oc_xxx'
+```
+
+如果 `send_message` 成功（API 返回 message_id）但网关日志中从未出现该群的入站消息 → **接收通路存在配置问题**。
+
+**典型根因排查顺序：**
+
+| # | 检查项 | 方法 | 修复 |
+|---|--------|------|------|
+| 1 | 飞书开放平台 → 事件订阅 | 访问 open.feishu.cn → 该应用 → 事件 | 确认 `im.message.receive_v1` 已订阅 |
+| 2 | 事件范围含群聊 | 检查事件订阅的 `receive scope` 设置 | 配置为接收「群聊」和「私聊」消息 |
+| 3 | Bot 是否在群内 | 飞书群设置 → 群成员 → 查看 Bot 头像 | 手动拉入或通过 API 加 Bot |
+| 4 | `.env` 配置 | `grep -i 'FEISHU_GROUP_POLICY' ~/.hermes/.env` | 设为 `open` 以接受所有群消息 |
+| 5 | Gateway 重启及日志分析 | 检查 WebSocket 连接 + 回顾入站消息历史 | `systemctl --user restart hermes-gateway` + 用 grep 检查日志中目标群的入站记录 |
+
+> **实战案例（2026-05-21）**：向战略材料部和系统运维部发消息成功（send_message 返回 message_id），但 Gateway 日志 11,507 行中从未出现任何群聊入站消息。
+
+**完整诊断过程：**
+
+```
+L1 ✓ API认证 — 获取token成功
+L2 ✓ ⽬消息发送 — send_message 返回 message_id
+L3 ✓ 群健康检查 — GET /im/v1/chats/{chat_id} 返回 chat_status=normal, bot_count=1
+L4 ✓ Gateway日志 — 确认 WebSocket 已连接（"Connected in websocket mode"）
+L5 ✗ 入站检查 — grep 全日志无任何群聊入站消息（仅 DM）
+```
+
+**根因分析**指向**飞书开放平台事件订阅未覆盖群聊消息**，而非网关端配置问题。
+
+🔴 **警告**：仅检查 `.env` 的 `FEISHU_GROUP_POLICY=open` 不足以确认收信正常——必须在飞书开放平台控制台确认事件订阅配置。出信能力（send_message）与收信能力（receive）是两条完全独立的通路。
 
 ### 8. 群成员增加
 如果之后需要添加更多成员，使用 `POST /open-apis/im/v1/chats/{chat_id}/members` 接口。

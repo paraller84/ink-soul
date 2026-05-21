@@ -83,16 +83,46 @@ trigger: 当用户要求做Pad端适配、界面大屏优化、触屏儿童UI设
 
 ## 视觉系统
 
-### 色彩（教育类推荐暖白+紫）
+### 色彩（教育类推荐暖白+紫，实际运行已确认使用 清透蓝白）
 
+**正式确认（2026-05-21 学生端视觉重设计评估）：** 学生端使用 **清透蓝白** 色系而非紫色暖白：
+- 背景 `#f0f6ff`，卡片 `#ffffff`
+- 主色 `#4f7cff`（天空蓝），辅色 `#ff8a65`（暖橙）
+- 文字 `#2d3436` / 辅助 `#636e72`
+- 边框 `#e0e7ff`
+- 成功 `#66bb6a` / 金币 `#f59e0b` / 错误 `#e53935`
+
+**执行规则：** 所有学生端子模板的 `:root` CSS变量块必须与上述色值保持一致。`pad.css` 的 `--accent` 变量应设为 `#4f7cff`（而非 `#6c63ff`）。如果新增页面，直接引用 `pad.css` 的Token系统，不要在内联 `<style>` 中重复定义 `:root` 变量。
+
+⚠️ **已知冲突**：设计Token层使用紫色 `#6c63ff`，但实际已实现的学生端页面（`home.html`）使用蓝色 `#4f7cff`。两套不同色系同时在代码库中存在，需要统一决策。
+
+**设计Token层颜色（pad.css）：**
 - 主背景：`#f5f0e8` 暖白
 - 卡片背景：`#ffffff`
 - 深色侧栏：`#1a1a2e` 深空蓝黑
 - 侧栏文字：`rgba(255,255,255,0.85)` / 次要 `0.45`
-- 主色：`#6c63ff` → 按压 `#5a52e0`
+- 主色（accent）：`#6c63ff` 紫色 → 按压 `#5a52e0`
 - 成功：`#4caf50`
 - 警告：`#f39c12`
 - 危险：`#e57373`
+
+**实际学生端页面颜色（home.html / chinese.html 的 `:root`）：**
+- 主色（primary）：`#4f7cff` 天空蓝
+- 辅色：`#ff8a65` 暖橙
+- 强调色：`#66bb6a` 绿色
+- 背景：`#f0f6ff` 浅蓝
+- 文字主色：`#2d3436`
+- 辅助文字：`#636e72`
+- 边框：`#e0e7ff`
+
+**冲突影响：**
+| 元素 | 设计Token | 实际页面 | 差异 |
+|------|-----------|---------|------|
+| 主色 | #6c63ff (紫) | #4f7cff (蓝) | ❌ 完全不同 |
+| 背景 | #f5f0e8 (暖白) | #f0f6ff (浅蓝) | ❌ 不同 |
+| 按钮主色 | --accent | --primary | ❌ 两个CSS变量 |
+
+**修复建议：** 统一为实际已在运行的学生端配色（蓝色系 `#4f7cff` + 浅蓝背景），将设计Token作为「下次大版本升级」目标。
 
 ### 圆角
 
@@ -109,6 +139,70 @@ trigger: 当用户要求做Pad端适配、界面大屏优化、触屏儿童UI设
 - 过渡：`0.15s ease`
 - 按钮点击反馈：`scale(0.96)`
 - 页面淡入：`fadeIn 0.3s`
+
+### 儿童答题反馈动画（9岁用户专用）
+
+答题反馈对儿童用户至关重要 — 纯文字不够，需要视觉动画产生成就感/安全感。
+
+**正确反馈 — 星星/粒子从底部弹入：**
+```css
+@keyframes celebration-pop {
+  0% { transform: scale(0) translateY(20px); opacity: 0; }
+  60% { transform: scale(1.15) translateY(-4px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.animate-celebration {
+  animation: celebration-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+```
+
+**获得金币 — 从题目位置向上飘到顶部：**
+```css
+@keyframes coin-fly {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-80px) scale(0.5); }
+}
+.animate-coin-fly {
+  position: fixed;
+  z-index: 999;
+  pointer-events: none;
+  animation: coin-fly 0.8s ease-out both;
+}
+```
+
+**错误反馈 — 轻微抖动（非惩罚性）：**
+```css
+@keyframes shake-gently {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.animate-shake {
+  animation: shake-gently 0.4s ease;
+}
+```
+
+**连续打卡庆祝 — 火焰/星星 burst：**
+```css
+@keyframes streak-burst {
+  0% { box-shadow: 0 0 0 0 rgba(255, 167, 38, 0.5); transform: scale(1); }
+  50% { box-shadow: 0 0 0 20px rgba(255, 167, 38, 0); transform: scale(1.1); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 167, 38, 0); transform: scale(1); }
+}
+```
+
+**获得称号 — 全屏弹窗 pop-in：**
+```css
+@keyframes title-reveal {
+  0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+  50% { transform: scale(1.3) rotate(3deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+```
+
+**设计原则：** 动画时长≤0.8s，ease-out 缓出，不干扰答题流程。9岁儿童注意力短，动画要快而强，不要慢而优雅。
 
 ## 页面-布局映射（参考）
 
@@ -282,7 +376,123 @@ for url in pages:
 - ❌ 用滚动条解决宽度问题 → 用分栏/网格利用宽度
 - ❌ 先改代码再做原型 → 先出原型确认方向再实施
 - ❌ 侧栏内容过多 → 保持核心5项导航，底部放状态信息
+- ❌ 子模板用固定 max-width 覆盖布局 → 不要在子模板的 `<style>` 中写 `.container { max-width: 480px }` 这类固定宽约束。即使是 body 级容器，也应使用相对值（pad 用 `780px`，移动端用 `100%`），否则侧栏布局在 iPad 上失效。子模板样式应该**补充/增强**父模板布局，而不是覆盖它。
+- ❌ Pad 页面中重复功能入口 → 当首页已内联展示某功能（如月历网格），不要在快捷入口区再放一个同名图标。Pad 端信息密度更高，用户能同时看到多个区域，重复入口变成视觉冗余。
+- ❌ 子页面 page_id 错误或不匹配 → 每个子模板必须用 `{% block page_id %}xxx{% endblock %}` 定义唯一的正确值，且必须精确匹配 `pad_base.html` 侧栏导航项的第一个 tuple 元素。如果 page_id 错用其他页面的值（例如 `chinese.html` 用了 `wrong_book`），会导致侧栏高亮错误指向。修复方法：grep 所有 student 模板的 `page_id` block 逐一核对。
+- ❌ Pad 子页面同时有侧栏和「‹ 返回」按钮 → 侧栏本身提供了多级导航，子页面顶部再放「‹ 返回」按钮在 Pad 端是冗余的。对于 pad 视图（`@media min-width: 768px`），应设置 `.back-btn { display: none; }`。手机端（无侧栏）保留后退按钮作为唯一导航方式。
+- ❌ 自定 padding 覆盖按钮高度，跌破最小触摸目标 → 当按钮使用自定的 `padding: 8px 16px` 而非 `--btn-h` 系列变量时，实际高度可降至 40px（小按钮需要 48px，默认 56px）。规则：所有交互按钮必须使用 `.pg-btn` / `.pg-btn.large` / `.pg-btn.small` 等组件类，禁止在按钮元素上覆写 padding。如果必须自定义，最小高度用 `min-height: 56px` 兜底。
+- ❌ 双View 模板残留 → 当执行「移除双视图」重构后，phone_frame 和 pad_frame 的 HTML 结构可能残留（不可见但仍在 DOM 中）。验证方法：审查元素检查 `.phone-frame` `.pad-frame` `.frame-label` 是否存在。批量清理命令：`grep -rn 'phone-frame\|pad-frame\|frame-label' templates/student/` 找出所有残留。
+
+## 学生端 vs 家长端设计哲学
+
+当系统同时存在学生端（做练习）和家长端（管理内容）时，**二者不是同一套 UI 的简配/增强版关系**，而是从不同命题出发的平行设计。
+
+| 维度 | 家长端（管理型） | 学生端（任务型） |
+|:-----|:-----------------|:-----------------|
+| 核心命题 | 管理内容、查看报告、配置系统 | 完成练习、获得反馈、积累成就 |
+| 导航模式 | 侧栏 + 7 模块导航 | 手机底部 5Tab / Pad 侧栏 |
+| 视觉风格 | 清透蓝白 · 信息密度高 | 暖色调 · 大图标 · 低信息密度 |
+| 交互动力 | 点击浏览 | 任务驱动：今天做什么？ |
+| 激励体系 | 无（管理者不需要） | 积分/称号/连击/庆祝动画 |
+| 页面流 | 树形目录（进→退→进） | 线性闭环（课文→答题→庆祝→下一课） |
+
+### 学生端 5Tab 底部导航规范
+
+手机端优先底部导航（替代侧栏），让核心入口始终在拇指可达域：
+
+| Tab | 图标 | 页面 | 说明 |
+|:----|:-----|:-----|:------|
+| 首页 | 🏠 | 小书房首页 | 一屏显示今日计划 + 四宫格入口 |
+| 课程 | 📖 | 课文选择 | 按课展示三态进度（已做/待做/未学） |
+| 学习 | 📊 | 报告/日历/历史 | 子 tab 切换 |
+| 荣誉 | 🏆 | 荣誉墙/商城 | 称号 + 积分消费 |
+| 我的 | 👤 | 个人中心 | 统计 + 称号 + 设置 + 退出 |
+
+Pad 端保留侧栏，内容与底部 Tab 对齐。
+
+### 学生端最小闭环页面流
+
+```
+课文选择 → 答题页 → 🎉 庆祝页 → 继续学习 / 📕 错题本 → 🏠 首页
+```
+
+每个环节的设计要点：
+
+| 环节 | 核心设计 | 关键元素 |
+|:-----|:---------|:---------|
+| **课文选择** | 网格展示每课卡片，三态标记 | 已完成(绿色) / 有练习待做(橙色高亮) / 尚未学习(灰色) |
+| **答题页** | 进度条 + 题型徽标 + 手写/选择/填空 | 清除干扰，聚焦当前题 |
+| **庆祝页** | 得分动画 + 金币动画 + 题型分布 + AI评语 | 大号 emoji + 糖果色统计卡片 |
+| **错题本** | 逐题展示，带消灭操作 | 红色错答案 + 绿色正确答案 + 重新练习按钮 |
+
+### 学生端配色系统（暖色调 · 儿童友好）
+
+区别于家长端的清透蓝白，学生端采用暖基调 + 高饱和点缀：
+
+```
+页面背景: #f0f6ff      卡片底色: #ffffff
+主色调:   #4f7cff      辅色:     #ff8a65 (Badge)
+成功色:   #66bb6a      金币色:   #f59e0b
+强调色:   #6c5ce7      文字主色: #2d3436
+错误色:   #e53935      辅助文字: #636e72
+```
+
+### 课文选择页设计模式
+
+这是学生端新增的核心页面，按课展示学习进度。推荐**网格卡片 + 三态颜色编码**：
+
+```html
+<div class="lesson-card" style="border-left-color: #4f7cff">
+  <div class="l-number">第 18 课</div>
+  <div class="l-name">童年的水墨画</div>
+  <span class="l-status ls-done">✅ 已完成</span>
+</div>
+
+<!-- 高亮：有练习待做 -->
+<div class="lesson-card" style="border-left-color: #f59e0b; box-shadow: 0 0 0 2px #f59e0b33">
+  <span class="l-status ls-now" style="background: #fff3e0; color: #f57c00">⏳ 有练习待做</span>
+</div>
+
+<!-- 置灰：尚未学习 -->
+<div class="lesson-card" style="border-left-color: #888; opacity: 0.6">
+  <span class="l-status ls-new">尚未学习</span>
+</div>
+```
+
+需要后端聚合 SQL：`practice_schedule` JOIN `question_bank` GROUP BY `lesson_number` → 判定每课状态。
+
+### 完成庆祝页设计模式
+
+提交全部答案后的新结果页，替代旧版纯数字报告。核心组件：
+
+1. **大号得分**（48-72px font-size）+ 星星等级（⭐×N）
+2. **题型分布卡片** — 每题型一个小卡片（正确率 + 进度条 + 颜色编码）
+3. **金币获得动画** — 暖色背景 + 大号数字（🪙 +26）
+4. **AI 评语卡片** — `#f8f6ff` 底色紫色提示（💡 会认字选读音需要多多练习哦！）
+5. **操作按钮** — 继续学习 / 查看错题 / 返回首页
+
+```html
+<div style="font-size: 72px; margin-bottom: 12px">🎉</div>
+<div style="font-size: 48px; font-weight: 800; color: #4f7cff">85%</div>
+<div style="font-size: 24px; margin-bottom: 12px">⭐⭐⭐</div>
+```
+
+### 学习日历设计模式
+
+月视图日历，四色编码：
+
+| 颜色 | 含义 | 色值 |
+|:-----|:-----|:------|
+| 🟢 绿色 | 已做练习 | `#e8f5e9` 背景 |
+| 🔴 红色 | 有练习未做 | `#fde8e8` 背景 |
+| 🔵 蓝色 | 今日 | `border: 2px solid #4f7cff` |
+| ⬜ 灰色 | 未来日期 | `color: #ccc` |
+
+点击日期 → 展开当天练习列表（练习名称 + 状态 + 完成数）。
 
 ## 参考文件
 
 - `references/pad-prototype-design-spec.md` — 完整设计规范文档（含Token体系、页面映射表）
+- `references/student-experience-design.md` — 学生端体验设计完整方法论（含14页原型、导航架构、色彩系统、页面流）
+- `references/student-page-audit-20260521.md` — 学生端24个模板的逐页UX/前端审计（含配色冲突、page_id错误、双View残留清单、消毒命令）
+- `references/student-redesign-prototype-v1.md` — 学生端视觉重设计方案v1.0索引（三角色评估结论+11页原型+4阶段实施计划），全量HTML原型在同一目录下的 student-redesign-v1.html

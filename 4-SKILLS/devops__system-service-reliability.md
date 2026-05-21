@@ -335,6 +335,72 @@ PHASE 3 — Post-restart recovery (watchdog handles it)
       → agent reviews logs on next manual restart
 ```
 
+## Flask Dev Server Lifecycle & Dual-Process Pitfall
+
+When serving Flask applications in development mode (`app.run()`), be aware of a
+critical deployment trap: **two processes binding to the same port.**
+
+### The Trap
+
+```bash
+# Server A started (20:00 — old code)
+$ python app.py &   # PID 95616, listens on 0.0.0.0:5003
+
+# Server B started later (21:30 — new code), WITHOUT killing A
+$ python app.py &   # PID 100901, also listens on 0.0.0.0:5003
+
+# Now BOTH servers share port 5003
+# Kernel round-robins incoming connections between them
+# ~50% of requests → old server, ~50% → new server
+```
+
+The user sees an intermittent "old page" — every other refresh may show stale
+content. This is especially insidious because the new template files are read
+from disk by both servers (Jinja2 renders fresh each request), so the **HTML
+looks correct**, but **Python route handlers and in-memory data structures**
+differ between the old and new process.
+
+### Diagnosis
+
+```bash
+# Check all processes on target port
+ss -tlnp | grep 5003
+# Output shows MULTIPLE PIDs for the same port:
+# users:(("python",pid=100901,...),("python",pid=95616,...))
+```
+
+### Fix
+
+```bash
+# 1. Kill ALL processes on the port
+fuser -k 5003/tcp
+# or: kill each PID individually
+
+# 2. Wait for port release
+sleep 2
+ss -tlnp | grep 5003 || echo "Port free"
+
+# 3. Start single fresh server (use Hermes terminal background=true)
+# so the process lifecycle is tracked
+terminal(background=true, command="cd ~/project && python app.py")
+
+# 4. Verify single process
+ss -tlnp | grep 5003
+# Expect: exactly one PID
+```
+
+### Prevention
+
+- **Always kill existing processes** before starting a new dev server: check
+  the port first with `ss -tlnp | grep <port>`.
+- **Use Hermes `terminal(background=true)`** for Flask servers so the gateway
+  tracks the process lifecycle and kills it cleanly on restart.
+- **Never start a Flask dev server with `nohup`/`&` in foreground terminal** —
+  this bypasses process tracking and is the root cause of orphaned servers.
+- After modifying route handlers or services, **restart the server** to ensure
+  in-memory Python code is fresh (Jinja2 templates are auto-read from disk,
+  but route code is loaded at startup).
+
 ## Pitfalls
 
 - **systemd --user ≠ system boot**: WSL user services require login. Do NOT

@@ -1,7 +1,7 @@
 ---
 name: systematic-debugging
 description: "4-phase root cause debugging: understand bugs before fixing."
-version: 1.2.0
+version: 1.3.0
 author: Hermes Agent (adapted from obra/superpowers)
 license: MIT
 metadata:
@@ -601,7 +601,63 @@ try {
 
 **This avoids the edit-flush-restart cycle during debugging.** Only write to disk when the browser confirms the fix.
 
-### 9b. Flask Template Cache Trap
+### 9c. JS Call Chain Backward Tracing
+
+**When the browser shows empty DOM containers (`<div>` elements exist but are empty) and the console shows a bare `exception` with no useful message or line number:**
+
+Use this light technique — no need to extract the full script and run it through Node.js (especially when the script is 100K+ chars with an embedded data array).
+
+**Procedure:**
+
+1. **Identify what DOM elements SHOULD contain** by reading the static HTML:
+   ```javascript
+   // Empty container in rendered page:
+   <div class="mode-grid" id="modeGrid"></div>
+   
+   // Read template source — find what JS populates it:
+   function renderModes() {
+     const grid = document.getElementById('modeGrid');
+     grid.innerHTML = MODES.map(m => `...`).join('');
+   }
+   ```
+
+2. **Trace backward through the call chain:**
+   ```
+   renderModes() → called by init()
+   renderCategories() → called by init()
+   init() → called at the bottom of the <script> block
+   init() calls loadState() first
+   ```
+   
+   Each function call is a potential break point. Read them in execution order.
+
+3. **Inspect `loadState()` for structural issues** — this is the most common failure point because it typically contains complex conditional logic:
+   ```javascript
+   function loadState() {
+     try {
+       if (saved) { ... }
+       for (...) { if (...) { ... } }
+       if (resume) { ... }
+     }  // ← EXTRA BRACE! Closes try prematurely, making "} catch(e) {}" a syntax error
+   } catch(e) { /* empty - error is swallowed */ }
+   ```
+
+4. **Look for mismatched braces in large functions** — pay attention to indentation breaks:
+   - A `.catch()` or `} catch()` at the wrong indentation level
+   - Inconsistent indentation shifts (4 spaces → 6 spaces that don't correspond to a new block)
+   - An extra closing `}` that aligns with `function` instead of `try`
+
+5. **The confirming test** — after fixing, the suspiciously-silent `catch(e) { /* ignore */ }` should no longer capture errors, and the dynamic elements should render.
+
+**Why this works better than Node.js extraction for large inline scripts:**
+- The ALL_QUESTIONS or DATA arrays (often 100K+ chars embedded in a single line) make `new Function(script)` slow
+- Backward tracing from empty DOM to call chain is O(k) where k = number of function definitions, not O(n) where n = total script size
+- You only read the control flow functions, not the full data array
+
+**Prevention — check for brace-level alignment after editing loadState():**
+- [ ] Count opening and closing braces at the `try {` / `} catch` boundary
+- [ ] Verify that `catch(e)` follows immediately after the `try` block's closing `}`
+- [ ] Add `e => console.error('loadState error:', e)` instead of `/* ignore */` for future debugging
 
 **When the JS fix has been applied to the template file but the browser still shows the old (broken) behavior:**
 
@@ -1040,6 +1096,7 @@ If you catch yourself thinking:
 
 - `references/grading-field-mismatch.md` — Tracing the "expected answer" field across all layers (data source → backend grading → API response → frontend display). Use when a grading/practice system judges correct input as wrong.
 - `references/flask-web-debugging.md` — Flask-specific error patterns: TemplateNotFound, UndefinedError in templates, broken url_for endpoints, blueprint route conflicts, debug-mode traceback reading, and module reloader behavior. Use when debugging a Flask web app that returns 500/404 with an HTML traceback.
+- `references/frontend-cache-debugging.md` — Four-step verification for "user reports visual bug but JS/CSS checks out on server side". Use when the user says "the elements don't change" but your browser test confirms everything works — the root cause is usually browser cache, not code.
 
 ## Hermes Agent Integration
 

@@ -196,6 +196,7 @@ tags: [html, design, info-graphic, document, report, template]
 - 上传到飞书云盘对应目录（见目录路由规则）
 - 分享给用户 + 发送链接到对话框
 - **两步缺一不可**：上传 + 发链接
+- **回复简洁**：HTML 已通过飞书链接交付时，回复仅需简短确认 + 链接，不得重复 HTML 中的内容
 
 ### Step 5b（可选）：PDF 输出
 

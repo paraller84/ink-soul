@@ -1,7 +1,7 @@
 ---
 name: aider-coding
-description: "Delegate coding to Aider CLI (features, PRs, refactoring). v1.0.0 — WSL-native DeepSeek/Ollama integration. Uses SEARCH/REPLACE edit format with auto-commit, lint, and repo-map."
-version: 1.0.0
+description: "Delegate coding to Aider CLI (features, PRs, refactoring). v1.1.0 — Added multi-batch UI page pattern. WSL-native DeepSeek/Ollama integration. Uses SEARCH/REPLACE edit format with auto-commit, lint, and repo-map."
+version: 1.1.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, wsl]
@@ -9,6 +9,8 @@ metadata:
   hermes:
     tags: [Coding-Agent, Aider, DeepSeek, Ollama, Code-Review, Refactoring, WSL]
     related_skills: [codex, subagent-driven-development]
+    references:
+      - multi-batch-ui-page-pattern.md: Batch decomposition strategy for 5+ template implementations
 ---
 
 # Aider CLI
@@ -52,7 +54,7 @@ docs/acceptance-criteria-[task].md  # 可二进制判定的检查清单
 
 # 委托 Aider 执行 Step 3
 delegate_task(
-    goal=f"""使用 Aider (aider-wrapper) 实现验收条件"",
+    goal=f"""使用 Aider (aider-wrapper) 实现验收条件""",
     context=f"""
     验收条件: {criteria_path}
     文件清单: {files_list}
@@ -165,6 +167,21 @@ result = delegate_task(
 )
 ```
 
+### 多批次 UI 页面委托模式（5+ 模板场景）
+
+当任务涉及 5+ 个前端模板时，拆分为两个 delegate_task 批次：
+
+**Batch 1（后端优先）：** routes + services
+- 输出：完整的 `render_template()` 上下文变量清单（变量名、类型、结构）
+- 验证方法：`python3 -c "from app import create_app; app = create_app()"` 确认路由注册
+
+**Batch 2（模板实现）：** templates
+- goal 中嵌入 Jinja2 陷阱警告（见下节 "Jinja2 Template Pitfalls"）
+- 提供 Batch 1 输出的完整上下文变量清单
+- 验证方法：test_client 模拟登录后 GET 每个页面 → 200
+
+详见 `references/multi-batch-ui-page-pattern.md`。
+
 ## Pitfalls
 
 - **⚠️ Files must be listed on CLI** — Aider in non-TTY mode won't create/edit files that aren't explicitly named. A single omission → "Please add hello.py to the chat"
@@ -199,6 +216,29 @@ Aider 生成的 Jinja2 模板容易混入 Python 原生语法，造成运行时 
 | `{{ str(x) }}` | `{{ x\|string }}` 或直接 `{{ x }}` | auto-escape 已处理 |
 | `{{ min(a,b) }}` | `{{ [a,b]\|min }}` | 用 list filter |
 | `{{ dict.keys() }}` | `{{ dict\|list }}` 或 `{% for k in dict %}` | 遍历用 for |
+
+### 在 delegate_task context 中嵌入 Jinja2 警告
+
+当委托 Aider 创建模板时，在 context 中**显式声明**：
+
+```python
+context=f"""
+项目路径: {project}
+模板目录: templates/student/
+基模板: templates/pad_base.html
+
+路由上下文变量：
+- /student/foo → {{ student, items }}
+
+⚠️ Jinja2 陷阱（必须遵守）：
+- 绝不使用 Python 内置函数：abs()/len()/str()/min()/max()
+- 必须使用 Jinja2 filter：|abs, |length, [a,b]|min
+- 所有模板 extends 'pad_base.html'
+- 用 block head_extra 写 CSS，block content 写内容
+"""
+```
+
+**为什么必须显式嵌入？** Aider 的 LLM 即使知道 Jinja2 规范，在生成多行模板时仍会周期性混入 Python 语法。显式的禁止声明在 delegate_task 的 context 中能显著降低偏差率。
 
 ### 验证方法
 

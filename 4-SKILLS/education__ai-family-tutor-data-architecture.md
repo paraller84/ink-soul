@@ -1418,6 +1418,59 @@ Step 7: 创建 practice_schedule 或更新现有 schedule
 
 详见 `references/parent-center-optimization-v1.html`（本会话产出的完整优化方案文档）。
 
+## 十四、学生端体验设计（2026-05-21 新增）
+
+学生端与家长端是**两个平行设计体系**，非简配/增强关系。详见 `education-pad-ui` skill 的 `references/student-experience-design.md` 完整文档，以及飞书文件 [学生端原型设计_v1.0.html](https://nofile.feishu.cn/file/MsTsbhKs4oMaimxCdfgc4gj3nqg)。
+
+### 核心差异速览
+
+| 维度 | 家长端 | 学生端 |
+|:-----|:-------|:-------|
+| 导航 | 侧栏 + 7模块 | 手机底部5Tab / Pad侧栏 |
+| 主题色 | 清透蓝白 | 暖色调 + 高饱和点缀 |
+| 核心页面流 | 管理→查看 | 课文选择→答题→庆祝→继续 |
+| 新增页面 | - | 课文选择、庆祝页、学习日历、个人中心 |
+| 激励 | 无 | 积分、称号、星星等级、连击 |
+
+### 学生端数据依赖
+
+学生端页面需要的数据查询模式（不包含已有页面）：
+
+| 页面 | 依赖数据 | 查询要点 |
+|:-----|:---------|:---------|
+| 课文选择 | textbook_lessons + question_bank + practice_schedule | 聚合 GROUP BY lesson_number，三态判定 |
+| 庆祝页 | practice_records + coin_transactions | 题型分布聚合，金币计算 |
+| 学习日历 | practice_schedule + practice_records | 按月 GROUP BY schedule_date |
+| 个人中心 | students + student_titles + coin_transactions | 累计统计聚合 |
+
+### 学生端路由架构建议（新增页面）
+
+```python
+# 新增视图函数
+@student_bp.route('/lessons')              # 课文选择页
+@student_bp.route('/lessons/<int:lesson_number>')  # 某课练习列表
+@student_bp.route('/practice/<id>/celebration')    # 庆祝页
+@student_bp.route('/calendar')              # 学习日历
+@student_bp.route('/calendar?year=&month=') # 翻月
+@student_bp.route('/profile')               # 个人中心
+```
+
+### 底部导航实现
+
+`pad_base.html` 的导航项需要用 `page_id` block 做高亮。新增底部 Tab 需要同时在手机端 CSS + Pad 端侧栏生效。手机端底部 Tab HTML 结构：
+
+```html
+<div class="bottom-nav">
+  <a class="nav-item active"><span class="n-icon">🏠</span>首页</a>
+  <a class="nav-item"><span class="n-icon">📖</span>课程</a>
+  <a class="nav-item"><span class="n-icon">📊</span>学习</a>
+  <a class="nav-item"><span class="n-icon">🏆</span>荣誉</a>
+  <a class="nav-item"><span class="n-icon">👤</span>我的</a>
+</div>
+```
+
+CSS 要点：`position: sticky; bottom: 0;` + 白色背景 + 圆角顶部阴影。
+
 ## 十四、参考文件
 
 | 文件 | 说明 |
@@ -1436,4 +1489,4 @@ Step 7: 创建 practice_schedule 或更新现有 schedule
 | `references/old-system-residual-references.md` | **旧系统残留引用追踪（2026-05-18 新增）：50+处仍在查询 `practice_sessions`/`practice_answers` 的代码位置清单** |
 | `references/per-lesson-generation-logs-20260517.md` | **每课一练生成操作日志：覆盖审计SQL + 已知陷阱（textbook_words拼音截断、duplicate去重、chinese_words重复记录）** |
 | `references/learning-report-kg-sql-20260518.md` | **知识图谱+题型分布SQL模式（2026-05-18新增）—— textbook_chars JOIN textbook_lessons 陷阱 + 三态判定** |
-| `references/learning-report-sql-pattern.md` | **学习报告SQL查询模式：每课掌握情况 + 高频错误字词统计（2026-05-17新增）** |**
+| `references/learning-report-sql-pattern.md` | **学习报告SQL查询模式：每课掌握情况 + 高频错误字词统计（2026-05-17新增）** |**\n| `references/student-side-data-aggregation-patterns.md` | **学生端页面数据聚合模式（2026-05-21新增）：首页/学科页/每日练习/课程/单元/打卡日历的聚合SQL+三态判定规则** |**
